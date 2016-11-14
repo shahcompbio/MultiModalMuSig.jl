@@ -1,5 +1,10 @@
 module MultiModalMuSig
 
-# package code goes here
+using Distributions
+using NLopt
+
+export IMMCTM, init!, fit!
+
+include("IMMCTM.jl")
 
 end # module
