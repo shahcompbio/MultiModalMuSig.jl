@@ -21,6 +21,9 @@ type IMMCTM
     features::Vector{Matrix{Int}}
     X::Vector{Vector{Matrix{Int}}}
 
+    converged::Bool
+    elbo::Float64
+
     function IMMCTM(k::Vector{Int}, α::Vector{Float64},
                     features::Vector{Matrix{Int}},
                     X::Vector{Vector{Matrix{Int}}})
@@ -61,6 +64,8 @@ type IMMCTM
                 for m in 1:model.M
             ] for d in 1:model.D
         ]
+
+        model.converged = false
 
         return model
     end
@@ -355,6 +360,12 @@ function fit!(model::IMMCTM; maxiter=100)
 
         push!(elbos, calculate_elbo(model))
         println("Iteration: $iter\tELBO: $(elbos[end])")
+        if length(elbos) > 1 &&
+                abs((elbos[end - 1] - elbos[end]) / elbos[end]) < 1e-4
+            model.converged = true
+            model.elbo = elbos[end]
+            break
+        end
     end
 
     return elbos
