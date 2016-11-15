@@ -343,7 +343,7 @@ function calculate_elbo(model::IMMCTM)
     return elbo
 end
 
-function fit!(model::IMMCTM; maxiter=100)
+function fit!(model::IMMCTM; maxiter=100, verbose=true)
 
     elbos = Float64[]
     for iter in 1:maxiter
@@ -359,7 +359,11 @@ function fit!(model::IMMCTM; maxiter=100)
         update_γ!(model)
 
         push!(elbos, calculate_elbo(model))
-        println("Iteration: $iter\tELBO: $(elbos[end])")
+
+        if verbose
+            println("Iteration: $iter\tELBO: $(elbos[end])")
+        end
+
         if length(elbos) > 1 &&
                 abs((elbos[end - 1] - elbos[end]) / elbos[end]) < 1e-4
             model.converged = true
