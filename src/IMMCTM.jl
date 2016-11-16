@@ -23,6 +23,7 @@ type IMMCTM
 
     converged::Bool
     elbo::Float64
+    perplexities::Vector{Float64}
 
     function IMMCTM(k::Vector{Int}, α::Vector{Float64},
                     features::Vector{Matrix{Int}},
@@ -106,7 +107,8 @@ function update_λ!(model::IMMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, -20.0)
     upper_bounds!(opt, 20.0)
-    xtol_abs!(opt, 1e-3)
+    xtol_rel!(opt, 1e-3)
+    xtol_abs!(opt, 1e-2)
 
     Ndivζ = calculate_Ndivζ(model, d)
     sumθ = calculate_sumθ(model, d)
@@ -138,7 +140,8 @@ function update_ν!(model::IMMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, 1e-10)
     upper_bounds!(opt, 100.0)
-    xtol_abs!(opt, 1e-3)
+    xtol_rel!(opt, 1e-3)
+    xtol_abs!(opt, 1e-2)
 
     Ndivζ = calculate_Ndivζ(model, d)
 
@@ -343,9 +346,57 @@ function calculate_elbo(model::IMMCTM)
     return elbo
 end
 
+function calculate_perplexity(X, η, m, model)
+    props = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:length(X)]
+
+    ϕ = deepcopy(model.γ[m])
+    for k in 1:model.K[m]
+        for i in 1:model.I[m]
+            ϕ[k][i] ./= sum(ϕ[k][i])
+        end
+    end
+
+    perp = 0.0
+    N = 0
+    for d in 1:length(X)
+        for w in 1:size(X[d])[1]
+            v = X[d][w, 1]
+            prob = 0.0
+            for k in 1:model.K[m]
+                tmp = props[d][k]
+                for i in find(model.features[m][v, :] .> 0)
+                    tmp *= ϕ[k][i][model.features[m][v, i]]
+                end
+                prob += tmp
+            end
+            perp += X[d][w, 2] * log(prob)
+            N += X[d][w, 2]
+        end
+    end
+
+    return exp(-perp / N)
+end
+
+function calculate_perplexities(model::IMMCTM)
+    perp = Array(Float64, model.M)
+
+    offset = 1
+    for m in 1:model.M
+        mk = offset:(offset + model.K[m] - 1)
+        η = [model.λ[d][mk] for d in 1:model.D]
+        Xm = [model.X[d][m] for d in 1:model.D]
+
+        perp[m] = calculate_perplexity(Xm, η, m, model)
+
+        offset += model.K[m]
+    end
+
+    return perp
+end
+
 function fit!(model::IMMCTM; maxiter=100, verbose=true)
 
-    elbos = Float64[]
+    perps = Vector{Float64}[]
     for iter in 1:maxiter
         for d in 1:model.D
             update_λ!(model, d)
@@ -358,19 +409,62 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
         update_Σ!(model)
         update_γ!(model)
 
-        push!(elbos, calculate_elbo(model))
+        push!(perps, calculate_perplexities(model))
 
         if verbose
-            println("Iteration: $iter\tELBO: $(elbos[end])")
+            println("Iteration: $iter\tPerplexities: ", join(perps[end], ", "))
         end
 
-        if length(elbos) > 1 &&
-                abs((elbos[end - 1] - elbos[end]) / elbos[end]) < 1e-4
+        if length(perps) > 10 &&
+                maximum(abs(perps[end - 1] .- perps[end]) ./ perps[end]) < 1e-3
             model.converged = true
-            model.elbo = elbos[end]
             break
         end
     end
+    model.elbo = calculate_elbo(model)
+    model.perplexities = perps[end]
 
-    return elbos
+    return perps
+end
+
+function predict(obsX::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
+        maxiter=100)
+    obsM = setdiff(1:model.M, m)
+
+    moffset = sum(model.K[1:(m - 1)])
+    unobsMK = (moffset + 1):(moffset + model.K[m])
+    obsMK = setdiff(1:sum(model.K), unobsMK)
+
+    obsmodel = IMMCTM(model.K[obsM], model.α[obsM], model.features[obsM], obsX)
+    obsmodel.μ .= model.μ[obsMK]
+    obsmodel.Σ .= model.Σ[obsMK, obsMK]
+    obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
+    obsmodel.γ .= model.γ[obsM]
+
+    η = [Array(Float64, model.K[m]) for d in 1:model.D]
+
+    for d in 1:length(obsX)
+        converged = false
+        for iter in 1:maxiter
+            oldλ = copy(obsmodel.λ[d])
+
+            update_ζ!(obsmodel, d)
+            update_θ!(obsmodel, d)
+            update_ν!(obsmodel, d)
+            update_λ!(obsmodel, d)
+
+            if maximum(abs(oldλ .- obsmodel.λ[d]) ./ abs(obsmodel.λ[d])) .< 1e-2
+                converged = true
+                break
+            end
+        end
+        if !converged
+            warn("Document not converged.")
+        end
+        η[d] .= model.μ[unobsMK] .+
+            model.Σ[unobsMK, obsMK] * obsmodel.invΣ *
+            (obsmodel.λ[d] - obsmodel.μ)
+    end
+
+    return η
 end
