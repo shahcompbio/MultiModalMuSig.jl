@@ -17,6 +17,7 @@ type IMMCTM
     λ::Vector{Vector{Float64}}
     ν::Vector{Vector{Float64}}
     γ::Vector{Vector{Vector{Vector{Float64}}}}
+    Elnϕ::Vector{Vector{Vector{Vector{Float64}}}}
 
     features::Vector{Matrix{Int}}
     X::Vector{Vector{Matrix{Int}}}
@@ -55,6 +56,15 @@ type IMMCTM
                 ] for k in 1:model.K[m]
             ] for m in 1:model.M
         ]
+        model.Elnϕ = [
+            [
+                [
+                    Array(Float64, model.J[m][i]) for i in 1:model.I[m]
+                ] for k in 1:model.K[m]
+            ] for m in 1:model.M
+        ]
+        update_Elnϕ!(model)
+
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
         model.ζ = [ones(model.M) for d in 1:model.D]
@@ -164,24 +174,23 @@ function update_ζ!(model::IMMCTM, d::Int)
     end
 end
 
-function Elnϕ(α, i)
-    return digamma(α[i]) - digamma(sum(α))
-end
-
 function update_θ!(model::IMMCTM, d::Int)
     for m in 1:model.M
         for w in 1:size(model.X[d][m])[1]
             v = model.X[d][m][w, 1]
-            for k in 1:model.K[m]
-                mk = sum(model.K[1:(m - 1)]) + k
-                model.θ[d][m][k, w] = exp(model.λ[d][mk])
 
-                for i in find(model.features[m][v, :] .> 0)
-                    model.θ[d][m][k, w] *= exp(Elnϕ(
-                        model.γ[m][k][i], model.features[m][v, i]
-                    ))
+            offset = 0
+            for k in 1:model.K[m]
+                model.θ[d][m][k, w] = exp(model.λ[d][offset + k])
+
+                for i in 1:model.I[m]
+                    model.θ[d][m][k, w] *= exp(
+                        model.Elnϕ[m][k][i][model.features[m][v, i]]
+                    )
                 end
             end
+            offset += model.K[m]
+
             model.θ[d][m][:, w] ./= sum(model.θ[d][m][:, w])
         end
     end
@@ -201,24 +210,41 @@ function update_Σ!(model::IMMCTM)
     model.invΣ .= inv(model.Σ)
 end
 
+function update_Elnϕ!(model::IMMCTM)
+    for m in 1:model.M
+        for k in 1:model.K[m]
+            for i in 1:model.I[m]
+                model.Elnϕ[m][k][i] .= digamma(model.γ[m][k][i]) .-
+                    digamma(sum(model.γ[m][k][i]))
+            end
+        end
+    end
+end
+
 function update_γ!(model::IMMCTM)
     for m in 1:model.M
         for k in 1:model.K[m]
             for i in 1:model.I[m]
                 for j in 1:model.J[m][i]
                     model.γ[m][k][i][j] = model.α[m] 
-                    vocabmatch = find(model.features[m][:, i] .== j)
-                    for d in 1:model.D
-                        docwordmatch = findin(model.X[d][m][:, 1], vocabmatch)
-                        model.γ[m][k][i][j] += sum(
-                            model.X[d][m][docwordmatch, 2] .*
-                            vec(model.θ[d][m][k, docwordmatch])
-                        )
+                end
+            end
+        end
+    end
+    for d in 1:model.D
+        for m in 1:model.M
+            Nθ = model.θ[d][m] .* model.X[d][m][:, 2]'
+            for w in 1:size(model.X[d][m])[1]
+                v = model.X[d][m][w, 1]
+                for k in 1:model.K[m]
+                    for i in 1:model.I[m]
+                        model.γ[m][k][i][model.features[m][v, i]] += Nθ[k, w]
                     end
                 end
             end
         end
     end
+    update_Elnϕ!(model)
 end
 
 function logmvbeta(vals)
@@ -239,7 +265,7 @@ function calculate_ElnPϕ(model::IMMCTM)
             for i in 1:model.I[m]
                 lnp -= logmvbeta(fill(model.α[m], model.J[m][i]))
                 for j in 1:model.J[m][i]
-                    lnp += (model.α[m] - 1) * Elnϕ(model.γ[m][k][i], j)
+                    lnp += (model.α[m] - 1) * model.Elnϕ[m][k][i][j]
                 end
             end
         end
@@ -287,10 +313,10 @@ function calculate_ElnPX(model::IMMCTM)
         for m in 1:model.M
             for w in 1:size(model.X[d][m])[1]
                 v = model.X[d][m][w, 1]
-                for i in find(model.features[m][v, :] .> 0)
+                for i in 1:model.I[m]
                     for k in 1:model.K[m]
                         lnp += model.X[d][m][w, 2] * model.θ[d][m][k, w] *
-                            Elnϕ(model.γ[m][k][i], model.features[m][v, i])
+                            model.Elnϕ[m][k][i][model.features[m][v, i]]
                     end
                 end
             end
@@ -308,7 +334,7 @@ function calculate_ElnQϕ(model::IMMCTM)
             for i in 1:model.I[m]
                 lnq += -logmvbeta(model.γ[m][k][i])
                 for j in 1:model.J[m][i]
-                    lnq += (model.γ[m][k][i][j] - 1) * Elnϕ(model.γ[m][k][i], j)
+                    lnq += (model.γ[m][k][i][j] - 1) * model.Elnϕ[m][k][i][j]
                 end
             end
         end
@@ -364,9 +390,10 @@ function calculate_perplexity(X, η, m, model)
             prob = 0.0
             for k in 1:model.K[m]
                 tmp = props[d][k]
-                for i in find(model.features[m][v, :] .> 0)
+                for i in 1:model.I[m]
                     tmp *= ϕ[k][i][model.features[m][v, i]]
                 end
+
                 prob += tmp
             end
             perp += X[d][w, 2] * log(prob)

@@ -242,6 +242,7 @@ facts("update_θ!") do
             [[1.0, 5.0],[5.0, 2.0]]
         ]
     ]
+    MultiModalMuSig.update_Elnϕ!(model)
 
     MultiModalMuSig.update_θ!(model, 1)
 
@@ -255,9 +256,6 @@ facts("update_θ!") do
 
     @fact sum(model.θ[1][1], 1) --> roughly(ones(size(X[1][1])[1])')
     @fact model.θ[1][1] --> roughly(θ)
-
-    model.features = [[1 0; 1 0; 2 0; 2 0], [1 1; 1 2; 2 1; 2 2]]
-    MultiModalMuSig.update_θ!(model, 1)
     @fact any(model.θ[1][1] .< 0.0) --> false
 end
 
@@ -300,9 +298,13 @@ facts("update_γ!") do
     @fact model.γ[1][1][2] --> roughly(γ2)
 end
 
-facts("Elnϕ") do
-    result = MultiModalMuSig.Elnϕ([0.1, 0.2, 0.3], 1)
-    @fact result --> roughly(digamma(0.1) - digamma(0.6))
+facts("update_Elnϕ!") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    model.γ[1][1][1] .= [1, 2]
+
+    MultiModalMuSig.update_Elnϕ!(model)
+
+    @fact model.Elnϕ[1][1][1][1] --> roughly(digamma(1) - digamma(3))
 end
 
 #=facts("calculate_ElnPϕ") do=#
