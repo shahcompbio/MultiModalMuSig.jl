@@ -1,3 +1,5 @@
+module MultiModalMuSigTests
+
 using MultiModalMuSig
 using FactCheck
 
@@ -61,9 +63,10 @@ facts("constructor") do
     @fact size(model.Σ) --> (5, 5)
     @fact size(model.invΣ) --> (5, 5)
 
-    @fact model.ζ --> [[1.0, 1.0], [1.0, 1.0]]
+    @fact length(model.ζ) --> 2
+    @fact length(model.ζ[1]) --> 2
     @fact sum(model.θ[1][1], 1) --> roughly(ones(2)')
-    @fact model.λ[1] --> zeros(5)
+    @fact length(model.λ[1]) --> 5
     @fact model.ν[1] --> ones(5)
 
     @fact length(model.γ) --> 2
@@ -307,38 +310,95 @@ facts("update_Elnϕ!") do
     @fact model.Elnϕ[1][1][1][1] --> roughly(digamma(1) - digamma(3))
 end
 
-#=facts("calculate_ElnPϕ") do=#
+facts("calculate_ElnPϕ") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnPϕ = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnPϕ(model) --> roughly(ElnPϕ)
+end
 
-#=end=#
+facts("calculate_ElnPη") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnPη = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnPη(model) --> roughly(ElnPη)
+end
 
-#=facts("calculate_ElnPη") do=#
+facts("calculate_ElnPZ") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnPZ = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnPZ(model) --> roughly(ElnPZ)
+end
 
-#=end=#
+facts("calculate_ElnPX") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnPX = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnPX(model) --> roughly(ElnPX)
+end
 
-#=facts("calculate_ElnPZ") do=#
+facts("calculate_ElnQϕ") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnQϕ = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnQϕ(model) --> roughly(ElnQϕ)
+end
 
-#=end=#
+facts("calculate_ElnQη") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnQη = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnQη(model) --> roughly(ElnQη)
+end
 
-#=facts("calculate_ElnPX") do=#
+facts("calculate_ElnQZ") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    ElnQZ = 0.0
+    @pending @fact MultiModalMuSig.calculate_ElnQZ(model) --> roughly(ElnQZ)
+end
 
-#=end=#
+facts("calculate_elbo") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    @fact MultiModalMuSig.calculate_elbo(model) --> less_than(0.0)
+end
 
-#=facts("calculate_ElnQϕ") do=#
+facts("fit") do
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+    perps = MultiModalMuSig.fit!(model, maxiter=1, verbose=false) 
+    @fact length(perps) --> 1
+    @fact length(perps[1]) --> 2
+end
 
-#=end=#
+facts("perplexities") do 
+    η = [[1.0, 2.0], [2.0, 3.0]]
+    θ = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:2]
 
-#=facts("calculate_ElnQη") do=#
+    γ = [
+        [[0.1, 0.2],[0.1, 1.0]],
+        [[0.1, 0.1],[1.0, 1.0]]
+    ]
+    ϕ = [[γ[k][i] ./ sum(γ[k][i]) for i in 1:2] for k in 1:2]
 
-#=end=#
+    Xm1 = [X[d][1] for d in 1:2]
 
-#=facts("calculate_ElnQZ") do=#
+    sum_ll = (
+        Xm1[1][1, 2] * log(
+            θ[1][1] * ϕ[1][1][1] * ϕ[1][2][1] +
+            θ[1][2] * ϕ[2][1][1] * ϕ[2][2][1]
+        ) +
+        Xm1[1][2, 2] * log(
+            θ[1][1] * ϕ[1][1][1] * ϕ[1][2][2] +
+            θ[1][2] * ϕ[2][1][1] * ϕ[2][2][2]
+        ) +
+        Xm1[2][1, 2] * log(
+            θ[2][1] * ϕ[1][1][2] * ϕ[1][2][1] +
+            θ[2][2] * ϕ[2][1][2] * ϕ[2][2][1]
+        ) +
+        Xm1[2][2, 2] * log(
+            θ[2][1] * ϕ[1][1][2] * ϕ[1][2][2] +
+            θ[2][2] * ϕ[2][1][2] * ϕ[2][2][2]
+        )
+    )
+    perp = exp(-sum_ll / sum(sum(X[d][1][:, 2]) for d in 1:2))
+    res = MultiModalMuSig.calculate_perplexity(Xm1, η, γ, features[1])
 
-#=end=#
+    @fact res --> roughly(perp)
+end
 
-#=facts("calculate_elbo") do=#
-
-#=end=#
-
-#=facts("fit") do=#
-
-#=end=#
+FactCheck.exitstatus()
+end

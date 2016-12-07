@@ -49,32 +49,28 @@ type IMMCTM
         model.Σ = eye(MK)
         model.invΣ = eye(MK)
 
-        model.γ = [
+        model.θ = [
             [
-                [
-                    rand(10:20, model.J[m][i]) for i in 1:model.I[m]
-                ] for k in 1:model.K[m]
-            ] for m in 1:model.M
+               rand(Dirichlet(model.K[m], 1.0 / model.K[m]), size(X[d][m])[1])
+                for m in 1:model.M
+            ] for d in 1:model.D
         ]
-        model.Elnϕ = [
+
+        model.γ = [
             [
                 [
                     Array(Float64, model.J[m][i]) for i in 1:model.I[m]
                 ] for k in 1:model.K[m]
             ] for m in 1:model.M
         ]
-        update_Elnϕ!(model)
+        model.Elnϕ = deepcopy(model.γ)
+        update_γ!(model)
 
-        model.λ = [zeros(MK) for d in 1:model.D]
+        model.λ = [randn(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
-        model.ζ = [ones(model.M) for d in 1:model.D]
 
-        model.θ = [
-            [
-                rand(Dirichlet(model.K[m], 1.0), size(X[d][m])[1])
-                for m in 1:model.M
-            ] for d in 1:model.D
-        ]
+        model.ζ = [Array(Float64, model.M) for d in 1:model.D]
+        for d in 1:model.D update_ζ!(model, d) end
 
         model.converged = false
 
@@ -117,8 +113,8 @@ function update_λ!(model::IMMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, -20.0)
     upper_bounds!(opt, 20.0)
-    xtol_rel!(opt, 1e-3)
-    xtol_abs!(opt, 1e-2)
+    xtol_rel!(opt, 1e-4)
+    xtol_abs!(opt, 1e-4)
 
     Ndivζ = calculate_Ndivζ(model, d)
     sumθ = calculate_sumθ(model, d)
@@ -150,8 +146,8 @@ function update_ν!(model::IMMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, 1e-10)
     upper_bounds!(opt, 100.0)
-    xtol_rel!(opt, 1e-3)
-    xtol_abs!(opt, 1e-2)
+    xtol_rel!(opt, 1e-4)
+    xtol_abs!(opt, 1e-4)
 
     Ndivζ = calculate_Ndivζ(model, d)
 
@@ -372,78 +368,84 @@ function calculate_elbo(model::IMMCTM)
     return elbo
 end
 
-function calculate_perplexity(X, η, m, model)
-    props = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:length(X)]
+function calculate_perplexity(X::Vector{Matrix{Int}},
+        η::Vector{Vector{Float64}}, γ::Vector{Vector{Vector{Float64}}},
+        features::Matrix{Int})
 
-    ϕ = deepcopy(model.γ[m])
-    for k in 1:model.K[m]
-        for i in 1:model.I[m]
-            ϕ[k][i] ./= sum(ϕ[k][i])
-        end
-    end
+    K = length(η[1])
+    D = length(X)
+    I = size(features)[2]
 
-    perp = 0.0
+    props = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:D]
+    ϕ = [[γ[k][i] ./ sum(γ[k][i]) for i in 1:I] for k in 1:K]
+
+    sum_ll = 0.0
     N = 0
-    for d in 1:length(X)
+    for d in 1:D
         for w in 1:size(X[d])[1]
             v = X[d][w, 1]
-            prob = 0.0
-            for k in 1:model.K[m]
+            pw = 0.0
+            for k in 1:K
                 tmp = props[d][k]
-                for i in 1:model.I[m]
-                    tmp *= ϕ[k][i][model.features[m][v, i]]
+                for i in 1:I
+                    tmp *= ϕ[k][i][features[v, i]]
                 end
-
-                prob += tmp
+                pw += tmp
             end
-            perp += X[d][w, 2] * log(prob)
+            sum_ll += X[d][w, 2] * log(pw)
             N += X[d][w, 2]
         end
     end
 
-    return exp(-perp / N)
+    return exp(-sum_ll / N)
 end
 
-function calculate_perplexities(model::IMMCTM)
-    perp = Array(Float64, model.M)
+function calculate_perplexities(X::Vector{Vector{Matrix{Int}}}, model::IMMCTM)
+    perps = Array(Float64, model.M)
 
     offset = 1
     for m in 1:model.M
         mk = offset:(offset + model.K[m] - 1)
         η = [model.λ[d][mk] for d in 1:model.D]
-        Xm = [model.X[d][m] for d in 1:model.D]
+        Xm = [X[d][m] for d in 1:model.D]
 
-        perp[m] = calculate_perplexity(Xm, η, m, model)
+        perps[m] = calculate_perplexity(Xm, η, model.γ[m], model.features[m])
 
         offset += model.K[m]
     end
 
-    return perp
+    return perps
+end
+
+function check_convergence(perps::Vector{Vector{Float64}})
+    return maximum(abs(perps[end - 1] .- perps[end]) ./ perps[end]) < 1e-4
+end
+
+function fitdoc!(model::IMMCTM, d::Int)
+    update_ζ!(model, d)
+    update_θ!(model, d)
+    update_ν!(model, d)
+    update_λ!(model, d)
 end
 
 function fit!(model::IMMCTM; maxiter=100, verbose=true)
-
     perps = Vector{Float64}[]
     for iter in 1:maxiter
         for d in 1:model.D
-            update_λ!(model, d)
-            update_ν!(model, d)
-            update_ζ!(model, d)
-            update_θ!(model, d)
+            fitdoc!(model, d)
         end
 
         update_μ!(model)
         update_Σ!(model)
         update_γ!(model)
 
-        push!(perps, calculate_perplexities(model))
+        push!(perps, calculate_perplexities(model.X, model))
 
         if verbose
-            println("Iteration: $iter\tPerplexities: ", join(perps[end], ", "))
+            println("$iter\tPerplexities: ", join(perps[end], ", "))
         end
 
-        if length(perps) > 10 &&
-                maximum(abs(perps[end - 1] .- perps[end]) ./ perps[end]) < 1e-3
+        if length(perps) > 10 && check_convergence(perps)
             model.converged = true
             break
         end
@@ -454,44 +456,38 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
     return perps
 end
 
-function predict(obsX::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
-        maxiter=100)
-    obsM = setdiff(1:model.M, m)
+function calculate_heldout_perplexities(Xhidden::Vector{Vector{Matrix{Int}}},
+        Xobs::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
+        maxiter=100, verbose=false)
 
-    moffset = sum(model.K[1:(m - 1)])
-    unobsMK = (moffset + 1):(moffset + model.K[m])
-    obsMK = setdiff(1:sum(model.K), unobsMK)
+    test_model = IMMCTM(model.K, model.α, model.features, Xobs)
+    test_model.μ .= model.μ
+    test_model.Σ .= model.Σ
+    test_model.invΣ .= model.invΣ
+    test_model.γ .= model.γ
+    test_model.Elnϕ .= model.Elnϕ
 
-    obsmodel = IMMCTM(model.K[obsM], model.α[obsM], model.features[obsM], obsX)
-    obsmodel.μ .= model.μ[obsMK]
-    obsmodel.Σ .= model.Σ[obsMK, obsMK]
-    obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
-    obsmodel.γ .= model.γ[obsM]
-
-    η = [Array(Float64, model.K[m]) for d in 1:model.D]
-
-    for d in 1:length(obsX)
-        converged = false
-        for iter in 1:maxiter
-            oldλ = copy(obsmodel.λ[d])
-
-            update_ζ!(obsmodel, d)
-            update_θ!(obsmodel, d)
-            update_ν!(obsmodel, d)
-            update_λ!(obsmodel, d)
-
-            if maximum(abs(oldλ .- obsmodel.λ[d]) ./ abs(obsmodel.λ[d])) .< 1e-2
-                converged = true
-                break
-            end
+    perps = Vector{Float64}[]
+    for iter in 1:maxiter
+        for d in 1:test_model.D
+            fitdoc!(model, d)
         end
-        if !converged
-            warn("Document not converged.")
+
+        push!(perps, calculate_perplexities(Xobs, test_model))
+
+        if verbose
+            println("$iter\tPerplexities: ", join(perps[end], ", "))
         end
-        η[d] .= model.μ[unobsMK] .+
-            model.Σ[unobsMK, obsMK] * obsmodel.invΣ *
-            (obsmodel.λ[d] - obsmodel.μ)
+
+        if length(perps) > 10 && check_convergence(perps)
+            test_model.converged = true
+            break
+        end
     end
 
-    return η
+    if !test_model.converged
+        warn("test model not converged")
+    end
+
+    return calculate_perplexities(Xhidden, test_model)
 end
