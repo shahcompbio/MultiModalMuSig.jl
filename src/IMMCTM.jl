@@ -243,6 +243,57 @@ function update_γ!(model::IMMCTM)
     update_Elnϕ!(model)
 end
 
+function svi_update_μ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
+    model.μ .= (1 - ρ) * model.μ + ρ * mean(model.λ[docs])
+end
+
+function svi_update_Σ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
+    Σ = sum(diagm.(model.ν[docs]))
+    for d in docs
+        diff = model.λ[d] .- model.μ
+        Σ .+= diff * diff'
+    end
+    Σ ./= length(docs)
+
+    model.Σ .= (1 - ρ) * model.Σ + ρ * Σ
+    model.invΣ .= inv(model.Σ)
+end
+
+function svi_update_γ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
+    γ = [
+        [
+            [
+                fill(model.α[m], model.J[m][i]) for i in 1:model.I[m]
+            ] for k in 1:model.K[m]
+        ] for m in 1:model.M
+    ]
+    for d in docs
+        for m in 1:model.M
+            Nθ = model.θ[d][m] .* model.X[d][m][:, 2]'
+            for w in 1:size(model.X[d][m])[1]
+                v = model.X[d][m][w, 1]
+                for k in 1:model.K[m]
+                    for i in 1:model.I[m]
+                        γ[m][k][i][model.features[m][v, i]] += Nθ[k, w]
+                    end
+                end
+            end
+        end
+    end
+    for m in 1:model.M
+        for k in 1:model.K[m]
+            for i in 1:model.I[m]
+                for j in 1:model.J[m][i]
+                    model.γ[m][k][i] .= (1 - ρ) * model.γ[m][k][i] .+
+                        ρ * model.D / length(docs) * γ[m][k][i]
+                end
+            end
+        end
+    end
+
+    update_Elnϕ!(model)
+end
+
 function logmvbeta(vals)
     r = 0.0
     for v in vals
@@ -417,19 +468,45 @@ function calculate_perplexities(X::Vector{Vector{Matrix{Int}}}, model::IMMCTM)
     return perps
 end
 
-function check_convergence(perps::Vector{Vector{Float64}})
-    return maximum(abs(perps[end - 1] .- perps[end]) ./ perps[end]) < 1e-4
+function check_convergence(perps::Vector{Vector{Float64}}; tol=1e-4)
+    return maximum(abs(perps[end - 1] .- perps[end]) ./ perps[end]) < tol
 end
 
 function fitdoc!(model::IMMCTM, d::Int)
-    update_ζ!(model, d)
-    update_θ!(model, d)
-    update_ν!(model, d)
-    update_λ!(model, d)
+    #=update_ζ!(model, d)=#
+    #=update_θ!(model, d)=#
+    #=update_ν!(model, d)=#
+    #=update_λ!(model, d)=#
+    perps = Vector{Float64}[]
+
+    myiter = 0
+    for iter in 1:20
+        update_ζ!(model, d)
+        update_θ!(model, d)
+        update_ν!(model, d)
+        update_λ!(model, d)
+
+        offset = 1
+        iterperps = Array(Float64, 2)
+        for m in 1:model.M
+            mk = offset:(offset + model.K[m] - 1)
+            iterperps[m] = calculate_perplexity(
+                [model.X[d][m]], [model.λ[d][mk]], model.γ[m], model.features[m]
+            )
+            offset += model.K[m]
+        end
+        push!(perps, iterperps)
+        
+        myiter = iter
+        if length(perps) > 1 && check_convergence(perps, tol=1e-3)
+            break
+        end
+    end
 end
 
 function fit!(model::IMMCTM; maxiter=100, verbose=true)
     perps = Vector{Float64}[]
+    elbos = Float64[]
     for iter in 1:maxiter
         for d in 1:model.D
             fitdoc!(model, d)
@@ -440,6 +517,7 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
         update_γ!(model)
 
         push!(perps, calculate_perplexities(model.X, model))
+        push!(elbos, calculate_elbo(model))
 
         if verbose
             println("$iter\tPerplexities: ", join(perps[end], ", "))
@@ -453,7 +531,48 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
     model.elbo = calculate_elbo(model)
     model.perplexities = perps[end]
 
-    return perps
+    return perps, elbos
+end
+
+function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
+    perps = Vector{Float64}[]
+    elbos = Float64[]
+
+    batches = Int(ceil(model.D / batchsize))
+    for epoch in 1:epochs
+        docs = shuffle(1:model.D)
+        batchstart = 1
+        batchstop = batches
+
+        for iter in 1:batches
+            batch = docs[batchstart:batchstop]
+            for d in batch
+                fitdoc!(model, d)
+            end
+            batchstart = batchstop + 1
+            batchstop += batches
+
+            ρ = Float64((epoch - 1) * batches + iter + 1) ^ (-1)
+
+            svi_update_μ!(model, batch, ρ)
+            svi_update_Σ!(model, batch, ρ)
+            svi_update_γ!(model, batch, ρ)
+        end
+
+        push!(perps, calculate_perplexities(model.X, model))
+        push!(elbos, calculate_elbo(model))
+
+        if verbose
+            println("$epoch\tPerplexities: ", join(perps[end], ", "))
+        end
+        if length(perps) > 10 && check_convergence(perps, tol=1e-5)
+            model.converged = true
+            break
+        end
+
+    end
+
+    return perps, elbos
 end
 
 function calculate_heldout_perplexities(Xhidden::Vector{Vector{Matrix{Int}}},
