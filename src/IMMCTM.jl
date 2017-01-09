@@ -473,35 +473,35 @@ function check_convergence(perps::Vector{Vector{Float64}}; tol=1e-4)
 end
 
 function fitdoc!(model::IMMCTM, d::Int)
-    #=update_ζ!(model, d)=#
-    #=update_θ!(model, d)=#
-    #=update_ν!(model, d)=#
-    #=update_λ!(model, d)=#
-    perps = Vector{Float64}[]
+    update_ζ!(model, d)
+    update_θ!(model, d)
+    update_ν!(model, d)
+    update_λ!(model, d)
+    #=perps = Vector{Float64}[]=#
 
-    myiter = 0
-    for iter in 1:20
-        update_ζ!(model, d)
-        update_θ!(model, d)
-        update_ν!(model, d)
-        update_λ!(model, d)
+    #=myiter = 0=#
+    #=for iter in 1:20=#
+        #=update_ζ!(model, d)=#
+        #=update_θ!(model, d)=#
+        #=update_ν!(model, d)=#
+        #=update_λ!(model, d)=#
 
-        offset = 1
-        iterperps = Array(Float64, 2)
-        for m in 1:model.M
-            mk = offset:(offset + model.K[m] - 1)
-            iterperps[m] = calculate_perplexity(
-                [model.X[d][m]], [model.λ[d][mk]], model.γ[m], model.features[m]
-            )
-            offset += model.K[m]
-        end
-        push!(perps, iterperps)
+        #=offset = 1=#
+        #=iterperps = Array(Float64, 2)=#
+        #=for m in 1:model.M=#
+            #=mk = offset:(offset + model.K[m] - 1)=#
+            #=iterperps[m] = calculate_perplexity(=#
+                #=[model.X[d][m]], [model.λ[d][mk]], model.γ[m], model.features[m]=#
+            #=)=#
+            #=offset += model.K[m]=#
+        #=end=#
+        #=push!(perps, iterperps)=#
         
-        myiter = iter
-        if length(perps) > 1 && check_convergence(perps, tol=1e-3)
-            break
-        end
-    end
+        #=myiter = iter=#
+        #=if length(perps) > 1 && check_convergence(perps, tol=1e-3)=#
+            #=break=#
+        #=end=#
+    #=end=#
 end
 
 function fit!(model::IMMCTM; maxiter=100, verbose=true)
@@ -542,7 +542,7 @@ function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
     for epoch in 1:epochs
         docs = shuffle(1:model.D)
         batchstart = 1
-        batchstop = batches
+        batchstop = batchsize
 
         for iter in 1:batches
             batch = docs[batchstart:batchstop]
@@ -550,7 +550,8 @@ function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
                 fitdoc!(model, d)
             end
             batchstart = batchstop + 1
-            batchstop += batches
+            batchstop += batchsize
+            batchstop = min(batchstop, model.D)
 
             ρ = Float64((epoch - 1) * batches + iter + 1) ^ (-1)
 
@@ -589,7 +590,7 @@ function calculate_heldout_perplexities(Xhidden::Vector{Vector{Matrix{Int}}},
     perps = Vector{Float64}[]
     for iter in 1:maxiter
         for d in 1:test_model.D
-            fitdoc!(model, d)
+            fitdoc!(test_model, d)
         end
 
         push!(perps, calculate_perplexities(Xobs, test_model))
@@ -610,3 +611,68 @@ function calculate_heldout_perplexities(Xhidden::Vector{Vector{Matrix{Int}}},
 
     return calculate_perplexities(Xhidden, test_model)
 end
+
+function predict(obsX::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
+        maxiter=100)
+    obsM = setdiff(1:model.M, m)
+
+    moffset = sum(model.K[1:(m - 1)])
+    unobsMK = (moffset + 1):(moffset + model.K[m])
+    obsMK = setdiff(1:sum(model.K), unobsMK)
+
+    obsmodel = IMMCTM(model.K[obsM], model.α[obsM], model.features[obsM], obsX)
+    obsmodel.μ .= model.μ[obsMK]
+    obsmodel.Σ .= model.Σ[obsMK, obsMK]
+    obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
+    obsmodel.γ .= model.γ[obsM]
+
+    η = [Array(Float64, model.K[m]) for d in 1:model.D]
+
+    for d in 1:length(obsX)
+        converged = false
+        for iter in 1:maxiter
+            oldλ = copy(obsmodel.λ[d])
+
+            update_ζ!(obsmodel, d)
+            update_θ!(obsmodel, d)
+            update_ν!(obsmodel, d)
+            update_λ!(obsmodel, d)
+
+            if maximum(abs(oldλ .- obsmodel.λ[d]) ./ abs(obsmodel.λ[d])) .< 1e-2
+                converged = true
+                break
+            end
+        end
+        if !converged
+            warn("Document not converged.")
+        end
+        η[d] .= model.μ[unobsMK] .+
+            model.Σ[unobsMK, obsMK] * obsmodel.invΣ *
+            (obsmodel.λ[d] - obsmodel.μ)
+    end
+
+    return η
+end
+
+#=function calculate_doc_likelihood(X, model::IMMCTM, R=100)=#
+    #=N = size(X)[1]=#
+    #=z = Array(Float64, N)=#
+    #=ll = 0.0=#
+    #=for w in 1:N=#
+        #=pw = 0.0=#
+        #=for r in 1:R=#
+            #=for ww in 1:(w - 1)=#
+                #=θ = =#
+            #=end=#
+
+            #=pw += =#
+        #=end=#
+
+        #=ll += log(pw / R)=#
+    #=end=#
+
+    #=return ll=#
+#=end=#
+
+#=function calculate_heldout_likelihood(Xtest, model::IMMCTM)=#
+#=end=#
