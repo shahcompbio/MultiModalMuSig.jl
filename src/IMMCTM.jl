@@ -24,7 +24,7 @@ type IMMCTM
 
     converged::Bool
     elbo::Float64
-    perplexities::Vector{Float64}
+    ll::Vector{Float64}
 
     function IMMCTM(k::Vector{Int}, α::Vector{Float64},
                     features::Vector{Matrix{Int}},
@@ -419,57 +419,65 @@ function calculate_elbo(model::IMMCTM)
     return elbo
 end
 
-function calculate_perplexity(X::Vector{Matrix{Int}},
-        η::Vector{Vector{Float64}}, γ::Vector{Vector{Vector{Float64}}},
+function calculate_docmodality_loglikelihood(X::Matrix{Int},
+        η::Vector{Float64}, ϕ::Vector{Vector{Vector{Float64}}},
         features::Matrix{Int})
+    props = exp(η) ./ sum(exp(η))
 
     K = length(η[1])
-    D = length(X)
     I = size(features)[2]
 
-    props = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:D]
-    ϕ = [[γ[k][i] ./ sum(γ[k][i]) for i in 1:I] for k in 1:K]
-
-    sum_ll = 0.0
-    N = 0
-    for d in 1:D
-        for w in 1:size(X[d])[1]
-            v = X[d][w, 1]
-            pw = 0.0
-            for k in 1:K
-                tmp = props[d][k]
-                for i in 1:I
-                    tmp *= ϕ[k][i][features[v, i]]
-                end
-                pw += tmp
+    ll = 0.0
+    for w in 1:size(X)[1]
+        v = X[w, 1]
+        pw = 0.0
+        for k in 1:K
+            tmp = props[k]
+            for i in 1:I
+                tmp *= ϕ[k][i][features[v, i]]
             end
-            sum_ll += X[d][w, 2] * log(pw)
-            N += X[d][w, 2]
+            pw += tmp
         end
+        ll += X[w, 2] * log(pw)
     end
 
-    return exp(-sum_ll / N)
+    return ll
 end
 
-function calculate_perplexities(X::Vector{Vector{Matrix{Int}}}, model::IMMCTM)
-    perps = Array(Float64, model.M)
+function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
+        η::Vector{Vector{Float64}}, ϕ::Vector{Vector{Vector{Float64}}},
+        features::Matrix{Int})
+    D = length(X)
+
+    ll = 0.0
+    for d in 1:D
+        ll += calculate_docmodality_loglikelihood(X[d], η[d], ϕ, features)
+    end
+
+    return ll
+end
+
+function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::IMMCTM)
+
+    ll = Array(Float64, model.M)
 
     offset = 1
     for m in 1:model.M
         mk = offset:(offset + model.K[m] - 1)
         η = [model.λ[d][mk] for d in 1:model.D]
         Xm = [X[d][m] for d in 1:model.D]
+        ϕ = [[γ[m][k][i] ./ sum(γ[m][k][i]) for i in 1:I] for k in 1:K]
 
-        perps[m] = calculate_perplexity(Xm, η, model.γ[m], model.features[m])
+        ll[m] = calculate_modality_loglikelihood(Xm, η, ϕ, model.features[m])
 
         offset += model.K[m]
     end
 
-    return perps
+    return ll
 end
 
-function check_convergence(perps::Vector{Vector{Float64}}; tol=1e-4)
-    return maximum(abs(perps[end - 1] .- perps[end]) ./ perps[end]) < tol
+function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
+    return maximum(abs(metric[end - 1] .- metric[end]) ./ metric[end]) < tol
 end
 
 function fitdoc!(model::IMMCTM, d::Int)
@@ -477,7 +485,8 @@ function fitdoc!(model::IMMCTM, d::Int)
     update_θ!(model, d)
     update_ν!(model, d)
     update_λ!(model, d)
-    #=perps = Vector{Float64}[]=#
+    #TODO
+    #=ll = Vector{Float64}[]=#
 
     #=myiter = 0=#
     #=for iter in 1:20=#
@@ -487,10 +496,10 @@ function fitdoc!(model::IMMCTM, d::Int)
         #=update_λ!(model, d)=#
 
         #=offset = 1=#
-        #=iterperps = Array(Float64, 2)=#
+        #=iterll = Array(Float64, 2)=#
         #=for m in 1:model.M=#
             #=mk = offset:(offset + model.K[m] - 1)=#
-            #=iterperps[m] = calculate_perplexity(=#
+            #=iterll[m] = calculate_document(=#
                 #=[model.X[d][m]], [model.λ[d][mk]], model.γ[m], model.features[m]=#
             #=)=#
             #=offset += model.K[m]=#
@@ -505,8 +514,9 @@ function fitdoc!(model::IMMCTM, d::Int)
 end
 
 function fit!(model::IMMCTM; maxiter=100, verbose=true)
-    perps = Vector{Float64}[]
+    ll = Vector{Float64}[]
     elbos = Float64[]
+
     for iter in 1:maxiter
         for d in 1:model.D
             fitdoc!(model, d)
@@ -516,26 +526,26 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
         update_Σ!(model)
         update_γ!(model)
 
-        push!(perps, calculate_perplexities(model.X, model))
+        push!(ll, calculate_loglikelihoods(model.X, model))
         push!(elbos, calculate_elbo(model))
 
         if verbose
-            println("$iter\tPerplexities: ", join(perps[end], ", "))
+            println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(perps) > 10 && check_convergence(perps)
+        if length(ll) > 10 && check_convergence(ll)
             model.converged = true
             break
         end
     end
     model.elbo = calculate_elbo(model)
-    model.perplexities = perps[end]
+    model.ll = ll[end]
 
-    return perps, elbos
+    return ll, elbos
 end
 
 function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
-    perps = Vector{Float64}[]
+    ll = Vector{Float64}[]
     elbos = Float64[]
 
     batches = Int(ceil(model.D / batchsize))
@@ -560,59 +570,54 @@ function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
             svi_update_γ!(model, batch, ρ)
         end
 
-        push!(perps, calculate_perplexities(model.X, model))
+        push!(ll, calculate_loglikelihoods(model.X, model))
         push!(elbos, calculate_elbo(model))
 
         if verbose
-            println("$epoch\tPerplexities: ", join(perps[end], ", "))
+            println("$epoch\tLog-likelihoods: ", join(ll[end], ", "))
         end
-        if length(perps) > 10 && check_convergence(perps, tol=1e-5)
+        if length(ll) > 10 && check_convergence(ll, tol=1e-5)
             model.converged = true
             break
         end
 
     end
 
-    return perps, elbos
+    return ll, elbos
 end
 
-function calculate_heldout_perplexities(Xhidden::Vector{Vector{Matrix{Int}}},
-        Xobs::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
+function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
         maxiter=100, verbose=false)
 
-    test_model = IMMCTM(model.K, model.α, model.features, Xobs)
-    test_model.μ .= model.μ
-    test_model.Σ .= model.Σ
-    test_model.invΣ .= model.invΣ
-    test_model.γ .= model.γ
-    test_model.Elnϕ .= model.Elnϕ
+    heldout_model = IMMCTM(model.K, model.α, model.features, Xheldout)
+    heldout_model.μ .= model.μ
+    heldout_model.Σ .= model.Σ
+    heldout_model.invΣ .= model.invΣ
+    heldout_model.γ .= model.γ
+    heldout_model.Elnϕ .= model.Elnϕ
 
-    perps = Vector{Float64}[]
+    ll = Vector{Float64}[]
     for iter in 1:maxiter
-        for d in 1:test_model.D
-            fitdoc!(test_model, d)
+        for d in 1:heldout_model.D
+            fitdoc!(heldout_model, d)
         end
 
-        push!(perps, calculate_perplexities(Xobs, test_model))
+        push!(ll, calculate_loglikelihoods(Xheldout, heldout_model))
 
         if verbose
-            println("$iter\tPerplexities: ", join(perps[end], ", "))
+            println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(perps) > 10 && check_convergence(perps)
-            test_model.converged = true
+        if length(ll) > 10 && check_convergence(ll)
+            heldout_model.converged = true
             break
         end
     end
 
-    if !test_model.converged
-        warn("test model not converged")
-    end
-
-    return calculate_perplexities(Xhidden, test_model)
+    return heldout_model
 end
 
-function predict(obsX::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
+function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
         maxiter=100)
     obsM = setdiff(1:model.M, m)
 
@@ -620,59 +625,41 @@ function predict(obsX::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
     unobsMK = (moffset + 1):(moffset + model.K[m])
     obsMK = setdiff(1:sum(model.K), unobsMK)
 
-    obsmodel = IMMCTM(model.K[obsM], model.α[obsM], model.features[obsM], obsX)
+    obsmodel = IMMCTM(model.K[obsM], model.α[obsM], model.features[obsM], Xobs)
     obsmodel.μ .= model.μ[obsMK]
     obsmodel.Σ .= model.Σ[obsMK, obsMK]
     obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
     obsmodel.γ .= model.γ[obsM]
 
-    η = [Array(Float64, model.K[m]) for d in 1:model.D]
-
-    for d in 1:length(obsX)
-        converged = false
-        for iter in 1:maxiter
-            oldλ = copy(obsmodel.λ[d])
-
-            update_ζ!(obsmodel, d)
-            update_θ!(obsmodel, d)
-            update_ν!(obsmodel, d)
-            update_λ!(obsmodel, d)
-
-            if maximum(abs(oldλ .- obsmodel.λ[d]) ./ abs(obsmodel.λ[d])) .< 1e-2
-                converged = true
-                break
-            end
+    ll = Vector{Float64}[]
+    for iter in 1:maxiter
+        for d in 1:obsmodel.D
+            fitdoc!(obsmodel, d)
         end
-        if !converged
-            warn("Document not converged.")
+
+        push!(ll, calculate_loglikelihoods(Xobs, obsmodel))
+
+        if verbose
+            println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
-        η[d] .= model.μ[unobsMK] .+
-            model.Σ[unobsMK, obsMK] * obsmodel.invΣ *
-            (obsmodel.λ[d] - obsmodel.μ)
+
+        if length(ll) > 10 && check_convergence(ll)
+            obsmodel.converged = true
+            break
+        end
     end
+
+    if !obsmodel.converged
+        warn("model not converged.")
+    end
+
+    η = [
+        (
+            model.μ[unobsMK] .+ model.Σ[unobsMK, obsMK] *
+            model.invΣ[obsMK, obsMK] * (obsmodel.λ[d][obsMK] .- model.μ[obsMK])
+        )
+        for d in 1:obsmodel.D
+    ]
 
     return η
 end
-
-#=function calculate_doc_likelihood(X, model::IMMCTM, R=100)=#
-    #=N = size(X)[1]=#
-    #=z = Array(Float64, N)=#
-    #=ll = 0.0=#
-    #=for w in 1:N=#
-        #=pw = 0.0=#
-        #=for r in 1:R=#
-            #=for ww in 1:(w - 1)=#
-                #=θ = =#
-            #=end=#
-
-            #=pw += =#
-        #=end=#
-
-        #=ll += log(pw / R)=#
-    #=end=#
-
-    #=return ll=#
-#=end=#
-
-#=function calculate_heldout_likelihood(Xtest, model::IMMCTM)=#
-#=end=#
