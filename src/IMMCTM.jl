@@ -457,8 +457,8 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
     return ll
 end
 
-function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::IMMCTM)
-
+function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
+        model::IMMCTM)
     ll = Array(Float64, model.M)
 
     offset = 1
@@ -466,7 +466,10 @@ function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::IMMCTM)
         mk = offset:(offset + model.K[m] - 1)
         η = [model.λ[d][mk] for d in 1:model.D]
         Xm = [X[d][m] for d in 1:model.D]
-        ϕ = [[γ[m][k][i] ./ sum(γ[m][k][i]) for i in 1:I] for k in 1:K]
+        ϕ = [
+            [model.γ[m][k][i] ./ sum(model.γ[m][k][i]) for i in 1:model.I[m]]
+            for k in 1:model.K[m]
+        ]
 
         ll[m] = calculate_modality_loglikelihood(Xm, η, ϕ, model.features[m])
 
@@ -617,8 +620,8 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
     return heldout_model
 end
 
-function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int, model::IMMCTM;
-        maxiter=100)
+function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
+        model::IMMCTM; verbose=false, maxiter=100)
     obsM = setdiff(1:model.M, m)
 
     moffset = sum(model.K[1:(m - 1)])
@@ -656,7 +659,7 @@ function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int, model::I
     η = [
         (
             model.μ[unobsMK] .+ model.Σ[unobsMK, obsMK] *
-            model.invΣ[obsMK, obsMK] * (obsmodel.λ[d][obsMK] .- model.μ[obsMK])
+            model.invΣ[obsMK, obsMK] * (obsmodel.λ[d] .- model.μ[obsMK])
         )
         for d in 1:obsmodel.D
     ]
