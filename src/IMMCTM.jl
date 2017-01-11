@@ -441,7 +441,7 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
         ll += X[w, 2] * log(pw)
     end
 
-    return ll
+    return ll / sum(X[:, 2])
 end
 
 function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
@@ -450,11 +450,19 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
     D = length(X)
 
     ll = 0.0
+    N = 0
     for d in 1:D
-        ll += calculate_docmodality_loglikelihood(X[d], η[d], ϕ, features)
+        doc_N = sum(X[d][:, 2])
+        if doc_N > 0
+            doc_ll = calculate_docmodality_loglikelihood(
+                X[d], η[d], ϕ, features
+            )
+            ll += doc_ll * doc_N
+            N += doc_N
+        end
     end
 
-    return ll
+    return ll / N
 end
 
 function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
@@ -621,7 +629,7 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
 end
 
 function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
-        model::IMMCTM; verbose=false, maxiter=100)
+        model::IMMCTM; maxiter=100, verbose=false)
     obsM = setdiff(1:model.M, m)
 
     moffset = sum(model.K[1:(m - 1)])
