@@ -597,6 +597,59 @@ function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
     return ll, elbos
 end
 
+function metafit(ks::Vector{Int}, α::Vector{Float64},
+        features::Vector{Matrix{Int}},
+        X::Vector{Vector{Matrix{Int}}}; restarts::Int=25)
+    
+    M = length(ks)
+    nvals = Int[sum(maximum(features[m], 1)) for m in 1:M]
+    γs = Matrix{Float64}[
+        Array(Float64, nvals[m], restarts * ks[m]) for m in 1:M
+    ]
+
+    for r in 1:restarts
+        println("restart $r")
+        model = IMMCTM(ks, α, features, X)
+        fit!(model, maxiter=1000, verbose=false)
+
+        for m in 1:M
+            for k in ks[m]
+                γs[m][:, r + k - 1] .= log(vcat(model.γ[m][k]...))
+            end
+        end
+    end
+
+    best_cost = fill(Inf, M)
+    best_centres = [Array(Float64, nvals[m], ks[m]) for m in 1:M]
+    res = [kmeans(γs[m], ks[m]) for m in 1:M]
+    for m in 1:M
+        for _ in 1:10
+            res = kmeans(γs[m], ks[m])
+            if res.totalcost < best_cost[m]
+                best_cost[m] = res.totalcost
+                best_centres[m] .= res.centers
+            end
+        end
+    end
+
+    model = IMMCTM(ks, α, features, X)
+    for m in 1:model.M
+        for k in 1:ks[m]
+            centre = vec(exp(best_centres[m][:, k]))
+
+            start = 1
+            for i in 1:model.I[m]
+                stop = start + model.J[m][i] - 1
+                model.γ[m][k][i] .= centre[start:stop]
+                start = stop + 1
+            end
+        end
+    end
+
+    fit!(model, maxiter=500, verbose=false)
+    return model
+end
+
 function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
         maxiter=100, verbose=false)
 
