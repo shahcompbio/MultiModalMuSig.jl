@@ -1,4 +1,4 @@
-type IMMCTM
+type MMCTM
     K::Vector{Int}          # topics
     D::Int                  # documents
     N::Vector{Vector{Int}}  # observations per document modality
@@ -23,7 +23,7 @@ type IMMCTM
     elbo::Float64
     ll::Vector{Float64}
 
-    function IMMCTM(k::Vector{Int}, α::Vector{Float64},
+    function MMCTM(k::Vector{Int}, α::Vector{Float64},
             X::Vector{Vector{Matrix{Int}}})
         model = new()
 
@@ -85,7 +85,7 @@ function λ_objective(λ::Vector{Float64}, ∇λ::Vector{Float64},
     return -0.5 * (diff' * invΣ * diff)[1] + sum(λ .* sumθ) - sum(Ndivζ .* Eeη)
 end
 
-function calculate_sumθ(model::IMMCTM, d::Int)
+function calculate_sumθ(model::MMCTM, d::Int)
     return vcat(
         [
             vec(sum(model.θ[d][m] .* model.X[d][m][:, 2]', 2))
@@ -94,7 +94,7 @@ function calculate_sumθ(model::IMMCTM, d::Int)
     )
 end
 
-function calculate_Ndivζ(model::IMMCTM, d::Int)
+function calculate_Ndivζ(model::MMCTM, d::Int)
     return vcat(
         [
             fill(model.N[d][m] / model.ζ[d][m], model.K[m]) for m in 1:model.M
@@ -102,7 +102,7 @@ function calculate_Ndivζ(model::IMMCTM, d::Int)
     )
 end
 
-function update_λ!(model::IMMCTM, d::Int)
+function update_λ!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, -20.0)
     upper_bounds!(opt, 20.0)
@@ -135,7 +135,7 @@ function ν_objective(ν::Vector{Float64}, ∇ν::Vector{Float64},
     return -0.5 * trace(diagm(ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log(ν)) / 2
 end
 
-function update_ν!(model::IMMCTM, d::Int)
+function update_ν!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, 1e-10)
     upper_bounds!(opt, 100.0)
@@ -152,7 +152,7 @@ function update_ν!(model::IMMCTM, d::Int)
     model.ν[d] .= optν
 end
 
-function update_ζ!(model::IMMCTM, d::Int)
+function update_ζ!(model::MMCTM, d::Int)
     start = 1
     for m in 1:model.M
         stop = start + model.K[m] - 1
@@ -163,21 +163,16 @@ function update_ζ!(model::IMMCTM, d::Int)
     end
 end
 
-# TODO
-function update_θ!(model::IMMCTM, d::Int)
+function update_θ!(model::MMCTM, d::Int)
     for m in 1:model.M
         for w in 1:size(model.X[d][m])[1]
             v = model.X[d][m][w, 1]
 
             offset = 0
             for k in 1:model.K[m]
-                model.θ[d][m][k, w] = exp(model.λ[d][offset + k])
-
-                for i in 1:model.I[m]
-                    model.θ[d][m][k, w] *= exp(
-                        model.Elnϕ[m][k][i][model.features[m][v, i]]
-                    )
-                end
+                model.θ[d][m][k, w] = (
+                    exp(model.λ[d][offset + k]) * model.Elnϕ[m][k][v]
+                )
             end
             offset += model.K[m]
 
@@ -186,11 +181,11 @@ function update_θ!(model::IMMCTM, d::Int)
     end
 end
 
-function update_μ!(model::IMMCTM)
+function update_μ!(model::MMCTM)
     model.μ .= mean(model.λ)
 end
 
-function update_Σ!(model::IMMCTM)
+function update_Σ!(model::MMCTM)
     model.Σ .= sum(diagm.(model.ν))
     for d in 1:model.D
         diff = model.λ[d] .- model.μ
@@ -200,26 +195,21 @@ function update_Σ!(model::IMMCTM)
     model.invΣ .= inv(model.Σ)
 end
 
-# TODO
-function update_Elnϕ!(model::IMMCTM)
+function update_Elnϕ!(model::MMCTM)
     for m in 1:model.M
         for k in 1:model.K[m]
-            for i in 1:model.I[m]
-                model.Elnϕ[m][k][i] .= digamma(model.γ[m][k][i]) .-
-                    digamma(sum(model.γ[m][k][i]))
-            end
+            model.Elnϕ[m][k] .= (
+                digamma(model.γ[m][k]) .- digamma(sum(model.γ[m][k]))
+            )
         end
     end
 end
 
-# TODO
-function update_γ!(model::IMMCTM)
+function update_γ!(model::MMCTM)
     for m in 1:model.M
         for k in 1:model.K[m]
-            for i in 1:model.I[m]
-                for j in 1:model.J[m][i]
-                    model.γ[m][k][i][j] = model.α[m] 
-                end
+            for v in 1:model.V[m]
+                model.γ[m][k][v] = model.α[m] 
             end
         end
     end
@@ -229,9 +219,7 @@ function update_γ!(model::IMMCTM)
             for w in 1:size(model.X[d][m])[1]
                 v = model.X[d][m][w, 1]
                 for k in 1:model.K[m]
-                    for i in 1:model.I[m]
-                        model.γ[m][k][i][model.features[m][v, i]] += Nθ[k, w]
-                    end
+                    model.γ[m][k][v] += Nθ[k, w]
                 end
             end
         end
@@ -239,11 +227,11 @@ function update_γ!(model::IMMCTM)
     update_Elnϕ!(model)
 end
 
-function svi_update_μ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
+function svi_update_μ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
     model.μ .= (1 - ρ) * model.μ + ρ * mean(model.λ[docs])
 end
 
-function svi_update_Σ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
+function svi_update_Σ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
     Σ = sum(diagm.(model.ν[docs]))
     for d in docs
         diff = model.λ[d] .- model.μ
@@ -255,13 +243,10 @@ function svi_update_Σ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
     model.invΣ .= inv(model.Σ)
 end
 
-# TODO
-function svi_update_γ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
+function svi_update_γ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
     γ = [
         [
-            [
-                fill(model.α[m], model.J[m][i]) for i in 1:model.I[m]
-            ] for k in 1:model.K[m]
+            fill(model.α[m], model.V[m]) for k in 1:model.K[m]
         ] for m in 1:model.M
     ]
     for d in docs
@@ -270,21 +255,16 @@ function svi_update_γ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
             for w in 1:size(model.X[d][m])[1]
                 v = model.X[d][m][w, 1]
                 for k in 1:model.K[m]
-                    for i in 1:model.I[m]
-                        γ[m][k][i][model.features[m][v, i]] += Nθ[k, w]
-                    end
+                    γ[m][k][v] += Nθ[k, w]
                 end
             end
         end
     end
     for m in 1:model.M
         for k in 1:model.K[m]
-            for i in 1:model.I[m]
-                for j in 1:model.J[m][i]
-                    model.γ[m][k][i] .= (1 - ρ) * model.γ[m][k][i] .+
-                        ρ * model.D / length(docs) * γ[m][k][i]
-                end
-            end
+            model.γ[m][k] .= (
+                (1 - ρ) * model.γ[m][k] .+ ρ * model.D / length(docs) * γ[m][k]
+            )
         end
     end
 
@@ -301,17 +281,14 @@ function logmvbeta(vals)
     return r
 end
 
-# TODO
-function calculate_ElnPϕ(model::IMMCTM)
+function calculate_ElnPϕ(model::MMCTM)
     lnp = 0.0
 
     for m in 1:model.M
         for k in 1:model.K[m]
-            for i in 1:model.I[m]
-                lnp -= logmvbeta(fill(model.α[m], model.J[m][i]))
-                for j in 1:model.J[m][i]
-                    lnp += (model.α[m] - 1) * model.Elnϕ[m][k][i][j]
-                end
+            lnp -= logmvbeta(fill(model.α[m], model.V[m]))
+            for v in 1:model.V[m]
+                lnp += (model.α[m] - 1) * model.Elnϕ[m][k][v]
             end
         end
     end
@@ -319,7 +296,7 @@ function calculate_ElnPϕ(model::IMMCTM)
     return lnp
 end
 
-function calculate_ElnPη(model::IMMCTM)
+function calculate_ElnPη(model::MMCTM)
     lnp = 0.0
 
     for d in 1:model.D
@@ -335,7 +312,7 @@ function calculate_ElnPη(model::IMMCTM)
     return lnp
 end
 
-function calculate_ElnPZ(model::IMMCTM)
+function calculate_ElnPZ(model::MMCTM)
     lnp = 0.0
 
     for d in 1:model.D
@@ -351,19 +328,18 @@ function calculate_ElnPZ(model::IMMCTM)
     return lnp
 end
 
-# TODO
-function calculate_ElnPX(model::IMMCTM)
+function calculate_ElnPX(model::MMCTM)
     lnp = 0.0
 
     for d in 1:model.D
         for m in 1:model.M
             for w in 1:size(model.X[d][m])[1]
                 v = model.X[d][m][w, 1]
-                for i in 1:model.I[m]
-                    for k in 1:model.K[m]
-                        lnp += model.X[d][m][w, 2] * model.θ[d][m][k, w] *
-                            model.Elnϕ[m][k][i][model.features[m][v, i]]
-                    end
+                for k in 1:model.K[m]
+                    lnp += (
+                        model.X[d][m][w, 2] * model.θ[d][m][k, w] *
+                        model.Elnϕ[m][k][v]
+                    )
                 end
             end
         end
@@ -372,24 +348,21 @@ function calculate_ElnPX(model::IMMCTM)
     return lnp
 end
 
-# TODO
-function calculate_ElnQϕ(model::IMMCTM)
+function calculate_ElnQϕ(model::MMCTM)
     lnq = 0.0
 
     for m in 1:model.M
         for k in 1:model.K[m]
-            for i in 1:model.I[m]
-                lnq += -logmvbeta(model.γ[m][k][i])
-                for j in 1:model.J[m][i]
-                    lnq += (model.γ[m][k][i][j] - 1) * model.Elnϕ[m][k][i][j]
-                end
+            lnq += -logmvbeta(model.γ[m][k])
+            for v in 1:model.V[m]
+                lnq += (model.γ[m][k][v] - 1) * model.Elnϕ[m][k][v]
             end
         end
     end
     return lnq
 end
 
-function calculate_ElnQη(model::IMMCTM)
+function calculate_ElnQη(model::MMCTM)
     lnq = 0.0
     for d in 1:model.D
         lnq += -0.5 * (sum(log(model.ν[d])) + sum(model.K) * (log(2π) + 1))
@@ -397,7 +370,7 @@ function calculate_ElnQη(model::IMMCTM)
     return lnq
 end
 
-function calculate_ElnQZ(model::IMMCTM)
+function calculate_ElnQZ(model::MMCTM)
     lnq = 0.0
     for d in 1:model.D
         for m in 1:model.M
@@ -407,7 +380,7 @@ function calculate_ElnQZ(model::IMMCTM)
     return lnq
 end
 
-function calculate_elbo(model::IMMCTM)
+function calculate_elbo(model::MMCTM)
     elbo = 0.0
     elbo += calculate_ElnPϕ(model)
     elbo += calculate_ElnPη(model)
@@ -419,10 +392,8 @@ function calculate_elbo(model::IMMCTM)
     return elbo
 end
 
-# TODO
 function calculate_docmodality_loglikelihood(X::Matrix{Int},
-        η::Vector{Float64}, ϕ::Vector{Vector{Vector{Float64}}},
-        features::Matrix{Int})
+        η::Vector{Float64}, ϕ::Vector{Vector{Float64}})
     props = exp(η) ./ sum(exp(η))
 
     K = length(η[1])
@@ -433,11 +404,7 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
         v = X[w, 1]
         pw = 0.0
         for k in 1:K
-            tmp = props[k]
-            for i in 1:I
-                tmp *= ϕ[k][i][features[v, i]]
-            end
-            pw += tmp
+            pw += props[k] * ϕ[k][v]
         end
         ll += X[w, 2] * log(pw)
     end
@@ -446,8 +413,7 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
 end
 
 function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
-        η::Vector{Vector{Float64}}, ϕ::Vector{Vector{Vector{Float64}}},
-        features::Matrix{Int})
+        η::Vector{Vector{Float64}}, ϕ::Vector{Vector{Float64}})
     D = length(X)
 
     ll = 0.0
@@ -455,9 +421,7 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
     for d in 1:D
         doc_N = sum(X[d][:, 2])
         if doc_N > 0
-            doc_ll = calculate_docmodality_loglikelihood(
-                X[d], η[d], ϕ, features
-            )
+            doc_ll = calculate_docmodality_loglikelihood(X[d], η[d], ϕ)
             ll += doc_ll * doc_N
             N += doc_N
         end
@@ -466,9 +430,7 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
     return ll / N
 end
 
-# TODO
-function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
-        model::IMMCTM)
+function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
     ll = Array(Float64, model.M)
 
     offset = 1
@@ -476,12 +438,9 @@ function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
         mk = offset:(offset + model.K[m] - 1)
         η = [model.λ[d][mk] for d in 1:model.D]
         Xm = [X[d][m] for d in 1:model.D]
-        ϕ = [
-            [model.γ[m][k][i] ./ sum(model.γ[m][k][i]) for i in 1:model.I[m]]
-            for k in 1:model.K[m]
-        ]
+        ϕ = [model.γ[m][k] ./ sum(model.γ[m][k]) for k in 1:model.K[m]]
 
-        ll[m] = calculate_modality_loglikelihood(Xm, η, ϕ, model.features[m])
+        ll[m] = calculate_modality_loglikelihood(Xm, η, ϕ)
 
         offset += model.K[m]
     end
@@ -493,7 +452,7 @@ function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
     return maximum(abs(metric[end - 1] .- metric[end]) ./ metric[end]) < tol
 end
 
-function fitdoc!(model::IMMCTM, d::Int)
+function fitdoc!(model::MMCTM, d::Int)
     update_ζ!(model, d)
     update_θ!(model, d)
     update_ν!(model, d)
@@ -526,7 +485,7 @@ function fitdoc!(model::IMMCTM, d::Int)
     #=end=#
 end
 
-function fit!(model::IMMCTM; maxiter=100, verbose=true)
+function fit!(model::MMCTM; maxiter=100, verbose=true)
     ll = Vector{Float64}[]
     elbos = Float64[]
 
@@ -557,7 +516,7 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
     return ll, elbos
 end
 
-function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
+function svi!(model::MMCTM; epochs=100, batchsize=25, verbose=true)
     ll = Vector{Float64}[]
     elbos = Float64[]
 
@@ -599,25 +558,26 @@ function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
     return ll, elbos
 end
 
-# TODO
 function metafit(ks::Vector{Int}, α::Vector{Float64},
-        features::Vector{Matrix{Int}},
         X::Vector{Vector{Matrix{Int}}}; restarts::Int=25)
     
     M = length(ks)
-    nvals = Int[sum(maximum(features[m], 1)) for m in 1:M]
+    nvals = [
+        maximum(maximum(X[d][m][:, 1]) for d in 1:model.D)
+        for m in 1:model.M
+    ]
     γs = Matrix{Float64}[
         Array(Float64, nvals[m], restarts * ks[m]) for m in 1:M
     ]
 
     for r in 1:restarts
         println("restart $r")
-        model = IMMCTM(ks, α, features, X)
+        model = MMCTM(ks, α, X)
         fit!(model, maxiter=1000, verbose=false)
 
         for m in 1:M
             for k in ks[m]
-                γs[m][:, r + k - 1] .= log(vcat(model.γ[m][k]...))
+                γs[m][:, r + k - 1] .= log(model.γ[m][k])
             end
         end
     end
@@ -635,34 +595,26 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
         end
     end
 
-    model = IMMCTM(ks, α, features, X)
+    model = MMCTM(ks, α, X)
     for m in 1:model.M
         for k in 1:ks[m]
-            centre = vec(exp(best_centres[m][:, k]))
-
-            start = 1
-            for i in 1:model.I[m]
-                stop = start + model.J[m][i] - 1
-                model.γ[m][k][i] .= centre[start:stop]
-                start = stop + 1
-            end
+            model.γ[m][k] = vec(exp(best_centres[m][:, k]))
         end
     end
 
-    fit!(model, maxiter=500, verbose=false)
+    fit!(model, maxiter=1000, verbose=false)
     return model
 end
 
-# TODO
-function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
+function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
         maxiter=100, verbose=false)
 
-    heldout_model = IMMCTM(model.K, model.α, model.features, Xheldout)
+    heldout_model = MMCTM(model.K, model.α, model.features, Xheldout)
     heldout_model.μ .= model.μ
     heldout_model.Σ .= model.Σ
     heldout_model.invΣ .= model.invΣ
-    heldout_model.γ .= model.γ
-    heldout_model.Elnϕ .= model.Elnϕ
+    heldout_model.γ = deepcopy(model.γ)
+    heldout_model.Elnϕ = deepcopy(model.Elnϕ)
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
@@ -685,20 +637,19 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
     return heldout_model
 end
 
-# TODO
 function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
-        model::IMMCTM; maxiter=100, verbose=false)
+        model::MMCTM; maxiter=100, verbose=false)
     obsM = setdiff(1:model.M, m)
 
     moffset = sum(model.K[1:(m - 1)])
     unobsMK = (moffset + 1):(moffset + model.K[m])
     obsMK = setdiff(1:sum(model.K), unobsMK)
 
-    obsmodel = IMMCTM(model.K[obsM], model.α[obsM], model.features[obsM], Xobs)
+    obsmodel = MMCTM(model.K[obsM], model.α[obsM], Xobs)
     obsmodel.μ .= model.μ[obsMK]
     obsmodel.Σ .= model.Σ[obsMK, obsMK]
     obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
-    obsmodel.γ .= model.γ[obsM]
+    obsmodel.γ = deepcopy(model.γ[obsM])
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
