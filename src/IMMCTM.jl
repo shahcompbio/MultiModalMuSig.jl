@@ -283,10 +283,8 @@ function svi_update_γ!(model::IMMCTM, docs::Vector{Int}, ρ::Float64)
     for m in 1:model.M
         for k in 1:model.K[m]
             for i in 1:model.I[m]
-                for j in 1:model.J[m][i]
-                    model.γ[m][k][i] .= (1 - ρ) * model.γ[m][k][i] .+
-                        ρ * model.D / length(docs) * γ[m][k][i]
-                end
+                model.γ[m][k][i] .= (1 - ρ) * model.γ[m][k][i] .+
+                    ρ * model.D / length(docs) * γ[m][k][i]
             end
         end
     end
@@ -657,8 +655,8 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;
     heldout_model.μ .= model.μ
     heldout_model.Σ .= model.Σ
     heldout_model.invΣ .= model.invΣ
-    heldout_model.γ .= model.γ
-    heldout_model.Elnϕ .= model.Elnϕ
+    heldout_model.γ = deepcopy(model.γ)
+    heldout_model.Elnϕ = deepcopy(model.Elnϕ)
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
@@ -693,7 +691,7 @@ function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
     obsmodel.μ .= model.μ[obsMK]
     obsmodel.Σ .= model.Σ[obsMK, obsMK]
     obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
-    obsmodel.γ .= model.γ[obsM]
+    obsmodel.γ = deepcopy(model.γ[obsM])
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
