@@ -32,11 +32,16 @@ type MMCTM
         model.X = X
 
         model.D = length(X)
-        model.M = length(features)
-        model.V = [
-            maximum(maximum(X[d][m][:, 1]) for d in 1:model.D)
+        model.M = length(k)
+
+        model.V = zeros(model.M)
+        for d in 1:model.D
             for m in 1:model.M
-        ]
+                if size(X[d][m], 1) > 0
+                    model.V[m] = max(model.V[m], maximum(X[d][m][:, 1]))
+                end
+            end
+        end
         model.N = [[sum(X[d][m][:, 2]) for m in 1:model.M] for d in 1:model.D]
 
         MK = sum(model.K)
@@ -59,7 +64,7 @@ type MMCTM
         model.Elnϕ = deepcopy(model.γ)
         update_γ!(model)
 
-        model.λ = [randn(MK) for d in 1:model.D]
+        model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
 
         model.ζ = [Array(Float64, model.M) for d in 1:model.D]
@@ -69,20 +74,6 @@ type MMCTM
 
         return model
     end
-end
-
-function λ_objective(λ::Vector{Float64}, ∇λ::Vector{Float64},
-        ν::Vector{Float64}, Ndivζ::Vector{Float64}, sumθ::Vector{Float64},
-        μ::Vector{Float64}, invΣ::Matrix{Float64})
-
-    diff = λ .- μ
-    Eeη = exp(λ .+ 0.5ν)
-
-    if length(∇λ) > 0
-        ∇λ .= -invΣ * diff .+ sumθ .- Ndivζ .* Eeη
-    end
-
-    return -0.5 * (diff' * invΣ * diff)[1] + sum(λ .* sumθ) - sum(Ndivζ .* Eeη)
 end
 
 function calculate_sumθ(model::MMCTM, d::Int)
@@ -104,10 +95,8 @@ end
 
 function update_λ!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    lower_bounds!(opt, -20.0)
-    upper_bounds!(opt, 20.0)
-    xtol_rel!(opt, 1e-4)
-    xtol_abs!(opt, 1e-4)
+    xtol_rel!(opt, 1e-5)
+    xtol_abs!(opt, 1e-5)
 
     Ndivζ = calculate_Ndivζ(model, d)
     sumθ = calculate_sumθ(model, d)
@@ -122,25 +111,11 @@ function update_λ!(model::MMCTM, d::Int)
     model.λ[d] .= optλ
 end
 
-function ν_objective(ν::Vector{Float64}, ∇ν::Vector{Float64},
-        λ::Vector{Float64}, Ndivζ::Vector{Float64}, μ::Vector{Float64},
-        invΣ::Matrix{Float64})
-
-    Eeη = exp(λ .+ 0.5ν)
-
-    if length(∇ν) > 0
-        ∇ν .= -0.5diag(invΣ) .- (Ndivζ / 2) .* Eeη .+ (1 ./ (2ν))
-    end
-
-    return -0.5 * trace(diagm(ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log(ν)) / 2
-end
-
 function update_ν!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    lower_bounds!(opt, 1e-10)
-    upper_bounds!(opt, 100.0)
-    xtol_rel!(opt, 1e-4)
-    xtol_abs!(opt, 1e-4)
+    lower_bounds!(opt, 1e-5)
+    xtol_rel!(opt, 1e-5)
+    xtol_abs!(opt, 1e-5)
 
     Ndivζ = calculate_Ndivζ(model, d)
 
@@ -271,16 +246,6 @@ function svi_update_γ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
     update_Elnϕ!(model)
 end
 
-function logmvbeta(vals)
-    r = 0.0
-    for v in vals
-        r += lgamma(v)
-    end
-    r -= lgamma(sum(vals))
-
-    return r
-end
-
 function calculate_ElnPϕ(model::MMCTM)
     lnp = 0.0
 
@@ -397,7 +362,6 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
     props = exp(η) ./ sum(exp(η))
 
     K = length(η[1])
-    I = size(features)[2]
 
     ll = 0.0
     for w in 1:size(X)[1]
@@ -448,41 +412,25 @@ function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
     return ll
 end
 
-function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
-    return maximum(abs(metric[end - 1] .- metric[end]) ./ metric[end]) < tol
-end
-
 function fitdoc!(model::MMCTM, d::Int)
-    update_ζ!(model, d)
-    update_θ!(model, d)
-    update_ν!(model, d)
-    update_λ!(model, d)
-    #TODO
-    #=ll = Vector{Float64}[]=#
+    MK = sum(model.K)
+    model.λ[d] = zeros(MK)
+    model.ν[d] = ones(MK)
 
-    #=myiter = 0=#
-    #=for iter in 1:20=#
-        #=update_ζ!(model, d)=#
-        #=update_θ!(model, d)=#
-        #=update_ν!(model, d)=#
-        #=update_λ!(model, d)=#
+    oldprops = Array(Float64, sum(model.K))
 
-        #=offset = 1=#
-        #=iterll = Array(Float64, 2)=#
-        #=for m in 1:model.M=#
-            #=mk = offset:(offset + model.K[m] - 1)=#
-            #=iterll[m] = calculate_document(=#
-                #=[model.X[d][m]], [model.λ[d][mk]], model.γ[m], model.features[m]=#
-            #=)=#
-            #=offset += model.K[m]=#
-        #=end=#
-        #=push!(perps, iterperps)=#
-        
-        #=myiter = iter=#
-        #=if length(perps) > 1 && check_convergence(perps, tol=1e-3)=#
-            #=break=#
-        #=end=#
-    #=end=#
+    for iter in 1:5000
+        update_ζ!(model, d)
+        update_θ!(model, d)
+        update_ν!(model, d)
+        update_λ!(model, d)
+
+        props = exp(model.λ[d]) / sum(exp(model.λ[d]))
+        if iter > 1 && mean(abs(props .- oldprops)) < 1e-4
+            break
+        end
+        oldprops .= props
+    end
 end
 
 function fit!(model::MMCTM; maxiter=100, verbose=true)
@@ -609,7 +557,7 @@ end
 function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
         maxiter=100, verbose=false)
 
-    heldout_model = MMCTM(model.K, model.α, model.features, Xheldout)
+    heldout_model = MMCTM(model.K, model.α, Xheldout)
     heldout_model.μ .= model.μ
     heldout_model.Σ .= model.Σ
     heldout_model.invΣ .= model.invΣ
