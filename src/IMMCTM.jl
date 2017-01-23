@@ -385,11 +385,11 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
         features::Matrix{Int})
     props = exp(η) ./ sum(exp(η))
 
-    K = length(η[1])
+    K = length(η)
     I = size(features)[2]
 
     ll = 0.0
-    for w in 1:size(X)[1]
+    for w in 1:size(X, 1)
         v = X[w, 1]
         pw = 0.0
         for k in 1:K

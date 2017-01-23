@@ -361,10 +361,10 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
         η::Vector{Float64}, ϕ::Vector{Vector{Float64}})
     props = exp(η) ./ sum(exp(η))
 
-    K = length(η[1])
+    K = length(η)
 
     ll = 0.0
-    for w in 1:size(X)[1]
+    for w in 1:size(X, 1)
         v = X[w, 1]
         pw = 0.0
         for k in 1:K
@@ -413,24 +413,29 @@ function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
 end
 
 function fitdoc!(model::MMCTM, d::Int)
-    MK = sum(model.K)
-    model.λ[d] = zeros(MK)
-    model.ν[d] = ones(MK)
+    update_ζ!(model, d)
+    update_θ!(model, d)
+    update_ν!(model, d)
+    update_λ!(model, d)
 
-    oldprops = Array(Float64, sum(model.K))
+    #MK = sum(model.K)
+    #model.λ[d] .= zeros(MK)
+    #model.ν[d] .= ones(MK)
 
-    for iter in 1:5000
-        update_ζ!(model, d)
-        update_θ!(model, d)
-        update_ν!(model, d)
-        update_λ!(model, d)
+    #oldprops = Array(Float64, sum(model.K))
 
-        props = exp(model.λ[d]) / sum(exp(model.λ[d]))
-        if iter > 1 && mean(abs(props .- oldprops)) < 1e-4
-            break
-        end
-        oldprops .= props
-    end
+    #for iter in 1:5000
+        #update_ζ!(model, d)
+        #update_θ!(model, d)
+        #update_ν!(model, d)
+        #update_λ!(model, d)
+
+        #props = exp(model.λ[d]) / sum(exp(model.λ[d]))
+        #if iter > 1 && mean(abs(props .- oldprops)) < 1e-4
+            #break
+        #end
+        #oldprops .= props
+    #end
 end
 
 function fit!(model::MMCTM; maxiter=100, verbose=true)
@@ -451,9 +456,10 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
 
         if verbose
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
+            println("$iter\tELBO: ", join(elbos[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll)
+        if length(ll) > 30 && check_convergence(ll, tol=1e-5)
             model.converged = true
             break
         end
@@ -496,12 +502,15 @@ function svi!(model::MMCTM; epochs=100, batchsize=25, verbose=true)
         if verbose
             println("$epoch\tLog-likelihoods: ", join(ll[end], ", "))
         end
-        if length(ll) > 10 && check_convergence(ll, tol=1e-5)
+        if length(ll) > 30 && check_convergence(ll, tol=1e-5)
             model.converged = true
             break
         end
 
     end
+
+    model.elbo = calculate_elbo(model)
+    model.ll = ll[end]
 
     return ll, elbos
 end
