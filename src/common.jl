@@ -36,6 +36,7 @@ function ν_objective(ν::Vector{Float64}, ∇ν::Vector{Float64},
 end
 
 function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
-    return maximum(abs(metric[end - 1] .- metric[end]) ./ metric[end]) < tol
+    reldiff = maximum(abs(metric[end - 1] .- metric[end]) ./ abs(metric[end]))
+    return reldiff < tol
 end
 
