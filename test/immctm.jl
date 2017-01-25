@@ -246,7 +246,6 @@ facts("update_θ!") do
         ]
     ]
     MultiModalMuSig.update_Elnϕ!(model)
-
     MultiModalMuSig.update_θ!(model, 1)
 
     θ = Array(Float64, 2, 2)
@@ -260,6 +259,19 @@ facts("update_θ!") do
     @fact sum(model.θ[1][1], 1) --> roughly(ones(size(X[1][1])[1])')
     @fact model.θ[1][1] --> roughly(θ)
     @fact any(model.θ[1][1] .< 0.0) --> false
+
+    MultiModalMuSig.update_θ!(model, 2)
+    θ = Array(Float64, 3, 2)
+    θ[1, 1] = exp(1 + digamma(0.5) - digamma(1.0) + digamma(1.0) - digamma(2.5))
+    θ[2, 1] = exp(4 + digamma(2.0) - digamma(3.0) + digamma(2.0) - digamma(5.0))
+    θ[3, 1] = exp(2 + digamma(5.0) - digamma(6.0) + digamma(5.0) - digamma(7.0))
+    θ[1, 2] = exp(1 + digamma(0.5) - digamma(1.0) + digamma(1.5) - digamma(2.5))
+    θ[2, 2] = exp(4 + digamma(2.0) - digamma(3.0) + digamma(3.0) - digamma(5.0))
+    θ[3, 2] = exp(2 + digamma(5.0) - digamma(6.0) + digamma(2.0) - digamma(7.0))
+    θ[:, 1] ./= sum(θ[:, 1])
+    θ[:, 2] ./= sum(θ[:, 2])
+
+    @fact model.θ[2][2] --> roughly(θ)
 end
 
 facts("update_μ!") do

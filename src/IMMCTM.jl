@@ -144,11 +144,11 @@ function update_ζ!(model::IMMCTM, d::Int)
 end
 
 function update_θ!(model::IMMCTM, d::Int)
+    offset = 0
     for m in 1:model.M
         for w in 1:size(model.X[d][m])[1]
             v = model.X[d][m][w, 1]
 
-            offset = 0
             for k in 1:model.K[m]
                 model.θ[d][m][k, w] = exp(model.λ[d][offset + k])
 
@@ -158,10 +158,10 @@ function update_θ!(model::IMMCTM, d::Int)
                     )
                 end
             end
-            offset += model.K[m]
 
             model.θ[d][m][:, w] ./= sum(model.θ[d][m][:, w])
         end
+        offset += model.K[m]
     end
 end
 
@@ -509,7 +509,7 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
     model.elbo = calculate_elbo(model)
     model.ll = ll[end]
 
-    return ll, elbos
+    return ll
 end
 
 function svi!(model::IMMCTM; epochs=100, batchsize=25, verbose=true)
