@@ -234,9 +234,9 @@ end
             [2, 3, 1, 2]
         ],
         [
-            [1, 1, 1, 1],
-            [1, 1, 1, 1],
-            [1, 1, 1, 1]
+            [1, 2, 3, 4],
+            [2, 1, 2, 6],
+            [1, 1, 3, 1]
         ]
     ]
     MultiModalMuSig.update_Elnϕ!(model)
@@ -253,55 +253,77 @@ end
     @test sum(model.θ[1][1], 1) ≈ ones(size(X[1][1])[1])'
     @test model.θ[1][1] ≈ θ
     @test any(model.θ[1][1] .< 0.0) == false
+
+    MultiModalMuSig.update_θ!(model, 2)
+    θ = Array(Float64, 3, 2)
+    θ[1, 1] = exp(1 + digamma(3) - digamma(10))
+    θ[2, 1] = exp(4 + digamma(2) - digamma(11))
+    θ[3, 1] = exp(2 + digamma(3) - digamma(6))
+    θ[1, 2] = exp(1 + digamma(4) - digamma(10))
+    θ[2, 2] = exp(4 + digamma(6) - digamma(11))
+    θ[3, 2] = exp(2 + digamma(1) - digamma(6))
+    θ[:, 1] ./= sum(θ[:, 1])
+    θ[:, 2] ./= sum(θ[:, 2])
+
+    @test model.θ[2][2] ≈ θ
 end
 
-#@testset "update_μ!" begin
-    #model = MultiModalMuSig.MMCTM(K, α, X)
-    #model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
+@testset "update_μ!" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
 
-    #MultiModalMuSig.update_μ!(model)
+    MultiModalMuSig.update_μ!(model)
 
-    #@test model.μ ≈ [1.5, 2.5, 2.0, 4.0, 1.5]
-#end
+    @test model.μ ≈ [1.5, 2.5, 2.0, 4.0, 1.5]
+end
 
-#@testset "update_Σ!" begin
-    #model = MultiModalMuSig.MMCTM(K, α, X)
-    #model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
-    #model.ν = [[1,1,1,2,1], [1,3,1,2,1]]
-    #model.μ = [1, 1, 2, 2, 1]
+@testset "update_Σ!" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
+    model.ν = [[1,1,1,2,1], [1,3,1,2,1]]
+    model.μ = [1, 1, 2, 2, 1]
 
-    #MultiModalMuSig.update_Σ!(model)
+    MultiModalMuSig.update_Σ!(model)
 
-    #diff1 = model.λ[1] .- model.μ
-    #diff2 = model.λ[2] .- model.μ
-    #Σ = 0.5 * (
-        #diagm(model.ν[1]) + diagm(model.ν[2]) +
-        #(diff1 * diff1') + (diff2 * diff2')
-    #)
-    #@test model.Σ ≈ Σ
-    #@test model.invΣ ≈ inv(Σ)
-#end
+    diff1 = model.λ[1] .- model.μ
+    diff2 = model.λ[2] .- model.μ
+    Σ = 0.5 * (
+        diagm(model.ν[1]) + diagm(model.ν[2]) +
+        (diff1 * diff1') + (diff2 * diff2')
+    )
+    @test model.Σ ≈ Σ
+    @test model.invΣ ≈ inv(Σ)
+end
 
-#@testset "update_γ!" begin
-    #model = MultiModalMuSig.MMCTM(K, α, X)
-    #model.θ[1][1] = [0.4 0.1; 0.6 0.9]
-    #model.θ[2][1] = [0.3 0.5; 0.7 0.5]
-    #MultiModalMuSig.update_γ!(model)
+@testset "update_γ!" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    model.θ[1][1] = [0.4 0.1; 0.6 0.9]
+    model.θ[2][1] = [0.3 0.5; 0.7 0.5]
+    model.θ[1][2] = [0.2 0.6; 0.7 0.3; 0.1 0.1]
+    model.θ[2][2] = [0.1 0.3; 0.7 0.5; 0.2 0.2]
+    MultiModalMuSig.update_γ!(model)
 
-    #γ1 = [0.1 + 5 * 0.4 + 8 * 0.1, 0.1 + 4 * 0.3 + 9 * 0.5]
-    #γ2 = [0.1 + 5 * 0.4 + 4 * 0.3, 0.1 + 8 * 0.1 + 9 * 0.5]
-    #@test model.γ[1][1][1] ≈ γ1
-    #@test model.γ[1][1][2] ≈ γ2
-#end
+    γ1 = [0.1 + 5 * 0.4, 0.1 + 8 * 0.1, 0.1 + 4 * 0.3, 0.1 + 9 * 0.5]
+    γ2 = [0.1 + 5 * 0.6, 0.1 + 8 * 0.9, 0.1 + 4 * 0.7, 0.1 + 9 * 0.5]
+    @test model.γ[1][1] ≈ γ1
+    @test model.γ[1][2] ≈ γ2
 
-#@testset "update_Elnϕ!" begin
-    #model = MultiModalMuSig.MMCTM(K, α, X)
-    #model.γ[1][1][1] .= [1, 2]
+    γ1 = [0.1 + 2 * 0.2, 0.1 + 5 * 0.6, 0.1 + 4 * 0.1, 0.1 + 6 * 0.3]
+    γ2 = [0.1 + 2 * 0.7, 0.1 + 5 * 0.3, 0.1 + 4 * 0.7, 0.1 + 6 * 0.5]
+    γ3 = [0.1 + 2 * 0.1, 0.1 + 5 * 0.1, 0.1 + 4 * 0.2, 0.1 + 6 * 0.2]
+    @test model.γ[2][1] ≈ γ1
+    @test model.γ[2][2] ≈ γ2
+    @test model.γ[2][3] ≈ γ3
+end
 
-    #MultiModalMuSig.update_Elnϕ!(model)
+@testset "update_Elnϕ!" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    model.γ[1][1] .= [1, 2, 1, 3]
 
-    #@test model.Elnϕ[1][1][1][1] ≈ digamma(1) - digamma(3)
-#end
+    MultiModalMuSig.update_Elnϕ!(model)
+
+    @test model.Elnϕ[1][1][1] ≈ digamma(1) - digamma(7)
+end
 
 #@testset "calculate_ElnPϕ" begin
     #model = MultiModalMuSig.MMCTM(K, α, X)
@@ -345,50 +367,53 @@ end
     #@pending @test MultiModalMuSig.calculate_ElnQZ(model) ≈ ElnQZ
 #end
 
-#@testset "calculate_elbo" begin
-    #model = MultiModalMuSig.MMCTM(K, α, X)
-    #@test MultiModalMuSig.calculate_elbo(model) == less_than(0.0)
-#end
+@testset "calculate_elbo" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    @test MultiModalMuSig.calculate_elbo(model) <= 0.0
+end
 
-#@testset "fit" begin
-    #model = MultiModalMuSig.MMCTM(K, α, X)
-    #perps = MultiModalMuSig.fit!(model, maxiter=1, verbose=false) 
-    #@test length(perps) == 1
-    #@test length(perps[1]) == 2
-#end
+@testset "fit" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    ll = MultiModalMuSig.fit!(model, maxiter=1, verbose=false) 
+    @test length(ll) == 1
+    @test length(ll[1]) == 2
+end
 
-#@testset "perplexities" begin 
-    #η = [[1.0, 2.0], [2.0, 3.0]]
-    #θ = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:2]
+@testset "loglikelihoods" begin 
+    η = [[1.0, 2.0], [2.0, 3.0]]
+    θ = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:2]
 
-    #γ = [
-        #[[0.1, 0.2],[0.1, 1.0]],
-        #[[0.1, 0.1],[1.0, 1.0]]
-    #]
-    #ϕ = [[γ[k][i] ./ sum(γ[k][i]) for i in 1:2] for k in 1:2]
+    γ = [
+        [1, 2, 1, 3],
+        [1, 1, 2, 4]
+    ]
+    ϕ = [γ[k] ./ sum(γ[k]) for k in 1:2]
 
-    #Xm1 = [X[d][1] for d in 1:2]
+    Xm1 = [X[d][1] for d in 1:2]
 
-    #sum_ll = (
-        #Xm1[1][1, 2] * log(
-            #θ[1][1] * ϕ[1][1][1] * ϕ[1][2][1] +
-            #θ[1][2] * ϕ[2][1][1] * ϕ[2][2][1]
-        #) +
-        #Xm1[1][2, 2] * log(
-            #θ[1][1] * ϕ[1][1][1] * ϕ[1][2][2] +
-            #θ[1][2] * ϕ[2][1][1] * ϕ[2][2][2]
-        #) +
-        #Xm1[2][1, 2] * log(
-            #θ[2][1] * ϕ[1][1][2] * ϕ[1][2][1] +
-            #θ[2][2] * ϕ[2][1][2] * ϕ[2][2][1]
-        #) +
-        #Xm1[2][2, 2] * log(
-            #θ[2][1] * ϕ[1][1][2] * ϕ[1][2][2] +
-            #θ[2][2] * ϕ[2][1][2] * ϕ[2][2][2]
-        #)
-    #)
-    #perp = exp(-sum_ll / sum(sum(X[d][1][:, 2]) for d in 1:2))
-    #res = MultiModalMuSig.calculate_perplexity(Xm1, η, γ, features[1])
+    sum_ll = [
+        (
+            Xm1[1][1, 2] * log(θ[1][1] * ϕ[1][1] + θ[1][2] * ϕ[2][1]) +
+            Xm1[1][2, 2] * log(θ[1][1] * ϕ[1][2] + θ[1][2] * ϕ[2][2])
+        ),
+        (
+            Xm1[2][1, 2] * log(θ[2][1] * ϕ[1][3] + θ[2][2] * ϕ[2][3]) +
+            Xm1[2][2, 2] * log(θ[2][1] * ϕ[1][4] + θ[2][2] * ϕ[2][4])
+        )
+    ]
+    N = [sum(X[d][1][:, 2]) for d in 1:2]
 
-    #@test res ≈ perp
-#end
+    res = MultiModalMuSig.calculate_docmodality_loglikelihood(Xm1[1], η[1], ϕ)
+    @test res ≈ sum_ll[1] / N[1]
+
+    res = MultiModalMuSig.calculate_modality_loglikelihood(Xm1, η, ϕ)
+    @test res ≈ sum(sum_ll) / sum(N)
+
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    model.λ[1][1:2] .= η[1][1:2]
+    model.λ[2][1:2] .= η[2][1:2]
+    model.γ[1] = deepcopy(γ)
+
+    res = MultiModalMuSig.calculate_loglikelihoods(X, model)
+    @test res[1] ≈ sum(sum_ll) / sum(N)
+end
