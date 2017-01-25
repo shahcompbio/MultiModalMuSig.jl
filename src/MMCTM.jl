@@ -139,20 +139,20 @@ function update_ζ!(model::MMCTM, d::Int)
 end
 
 function update_θ!(model::MMCTM, d::Int)
+    offset = 0
     for m in 1:model.M
-        for w in 1:size(model.X[d][m])[1]
+        for w in 1:size(model.X[d][m], 1)
             v = model.X[d][m][w, 1]
 
-            offset = 0
             for k in 1:model.K[m]
-                model.θ[d][m][k, w] = (
-                    exp(model.λ[d][offset + k]) * model.Elnϕ[m][k][v]
+                model.θ[d][m][k, w] = exp(
+                    model.λ[d][offset + k] + model.Elnϕ[m][k][v]
                 )
             end
-            offset += model.K[m]
 
             model.θ[d][m][:, w] ./= sum(model.θ[d][m][:, w])
         end
+        offset += model.K[m]
     end
 end
 
