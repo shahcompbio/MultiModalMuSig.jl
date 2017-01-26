@@ -95,8 +95,8 @@ end
 
 function update_λ!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    xtol_rel!(opt, 1e-5)
-    xtol_abs!(opt, 1e-5)
+    xtol_rel!(opt, 1e-4)
+    #xtol_abs!(opt, 1e-4)
 
     Ndivζ = calculate_Ndivζ(model, d)
     sumθ = calculate_sumθ(model, d)
@@ -113,9 +113,9 @@ end
 
 function update_ν!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    lower_bounds!(opt, 1e-5)
-    xtol_rel!(opt, 1e-5)
-    xtol_abs!(opt, 1e-5)
+    lower_bounds!(opt, 1e-7)
+    xtol_rel!(opt, 1e-4)
+    xtol_abs!(opt, 1e-4)
 
     Ndivζ = calculate_Ndivζ(model, d)
 
@@ -149,9 +149,8 @@ function update_θ!(model::MMCTM, d::Int)
                     model.λ[d][offset + k] + model.Elnϕ[m][k][v]
                 )
             end
-
-            model.θ[d][m][:, w] ./= sum(model.θ[d][m][:, w])
         end
+        model.θ[d][m] ./= sum(model.θ[d][m], 1)
         offset += model.K[m]
     end
 end
@@ -437,7 +436,7 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll, tol=1e-5)
+        if length(ll) > 10 && check_convergence(ll)
             model.converged = true
             break
         end

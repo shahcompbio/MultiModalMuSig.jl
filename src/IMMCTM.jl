@@ -97,8 +97,6 @@ end
 
 function update_λ!(model::IMMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    lower_bounds!(opt, -20.0)
-    upper_bounds!(opt, 20.0)
     xtol_rel!(opt, 1e-4)
     xtol_abs!(opt, 1e-4)
 
@@ -117,8 +115,7 @@ end
 
 function update_ν!(model::IMMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    lower_bounds!(opt, 1e-10)
-    upper_bounds!(opt, 100.0)
+    lower_bounds!(opt, 1e-7)
     xtol_rel!(opt, 1e-4)
     xtol_abs!(opt, 1e-4)
 
@@ -159,8 +156,8 @@ function update_θ!(model::IMMCTM, d::Int)
                 end
             end
 
-            model.θ[d][m][:, w] ./= sum(model.θ[d][m][:, w])
         end
+        model.θ[d][m] ./= sum(model.θ[d][m], 1)
         offset += model.K[m]
     end
 end
