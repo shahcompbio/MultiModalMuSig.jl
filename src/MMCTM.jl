@@ -417,30 +417,10 @@ function fitdoc!(model::MMCTM, d::Int)
     update_θ!(model, d)
     update_ν!(model, d)
     update_λ!(model, d)
-
-    #MK = sum(model.K)
-    #model.λ[d] .= zeros(MK)
-    #model.ν[d] .= ones(MK)
-
-    #oldprops = Array(Float64, sum(model.K))
-
-    #for iter in 1:5000
-        #update_ζ!(model, d)
-        #update_θ!(model, d)
-        #update_ν!(model, d)
-        #update_λ!(model, d)
-
-        #props = exp(model.λ[d]) / sum(exp(model.λ[d]))
-        #if iter > 1 && mean(abs(props .- oldprops)) < 1e-4
-            #break
-        #end
-        #oldprops .= props
-    #end
 end
 
 function fit!(model::MMCTM; maxiter=100, verbose=true)
     ll = Vector{Float64}[]
-    elbos = Float64[]
 
     for iter in 1:maxiter
         for d in 1:model.D
@@ -452,14 +432,12 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
         update_γ!(model)
 
         push!(ll, calculate_loglikelihoods(model.X, model))
-        push!(elbos, calculate_elbo(model))
 
         if verbose
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
-            println("$iter\tELBO: ", join(elbos[end], ", "))
         end
 
-        if length(ll) > 30 && check_convergence(ll, tol=1e-5)
+        if length(ll) > 10 && check_convergence(ll, tol=1e-5)
             model.converged = true
             break
         end
@@ -467,7 +445,7 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
     model.elbo = calculate_elbo(model)
     model.ll = ll[end]
 
-    return ll, elbos
+    return ll
 end
 
 function svi!(model::MMCTM; epochs=100, batchsize=25, verbose=true)
