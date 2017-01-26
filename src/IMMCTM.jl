@@ -453,37 +453,10 @@ function fitdoc!(model::IMMCTM, d::Int)
     update_θ!(model, d)
     update_ν!(model, d)
     update_λ!(model, d)
-    #TODO
-    #=ll = Vector{Float64}[]=#
-
-    #=myiter = 0=#
-    #=for iter in 1:20=#
-        #=update_ζ!(model, d)=#
-        #=update_θ!(model, d)=#
-        #=update_ν!(model, d)=#
-        #=update_λ!(model, d)=#
-
-        #=offset = 1=#
-        #=iterll = Array(Float64, 2)=#
-        #=for m in 1:model.M=#
-            #=mk = offset:(offset + model.K[m] - 1)=#
-            #=iterll[m] = calculate_document(=#
-                #=[model.X[d][m]], [model.λ[d][mk]], model.γ[m], model.features[m]=#
-            #=)=#
-            #=offset += model.K[m]=#
-        #=end=#
-        #=push!(perps, iterperps)=#
-        
-        #=myiter = iter=#
-        #=if length(perps) > 1 && check_convergence(perps, tol=1e-3)=#
-            #=break=#
-        #=end=#
-    #=end=#
 end
 
 function fit!(model::IMMCTM; maxiter=100, verbose=true)
     ll = Vector{Float64}[]
-    elbos = Float64[]
 
     for iter in 1:maxiter
         for d in 1:model.D
@@ -495,13 +468,11 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
         update_γ!(model)
 
         push!(ll, calculate_loglikelihoods(model.X, model))
-        push!(elbos, calculate_elbo(model))
-
         if verbose
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll)
+        if length(ll) > 10 && check_convergence(ll, tol=1e-5)
             model.converged = true
             break
         end
