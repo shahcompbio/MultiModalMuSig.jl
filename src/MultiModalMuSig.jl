@@ -3,6 +3,7 @@ module MultiModalMuSig
 using Distributions
 using NLopt
 using Clustering
+using StatsFuns
 
 export IMMCTM, MMCTM, fit!
 
