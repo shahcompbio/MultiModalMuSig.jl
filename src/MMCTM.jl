@@ -17,6 +17,8 @@ type MMCTM
     γ::Vector{Vector{Vector{Float64}}}
     Elnϕ::Vector{Vector{Vector{Float64}}}
 
+    laplaceΣ::Vector{Matrix{Float64}}
+
     X::Vector{Vector{Matrix{Int}}}
 
     converged::Bool
@@ -49,6 +51,8 @@ type MMCTM
         model.μ = zeros(MK)
         model.Σ = eye(MK)
         model.invΣ = eye(MK)
+
+        model.laplaceΣ = [eye(MK) for d in 1:model.D]
 
         model.θ = [
             [
@@ -247,50 +251,60 @@ end
 
 function laplace_update_λ!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    xtol_rel!(opt, 1e-4)
+    #xtol_rel!(opt, 1e-4)
     xtol_abs!(opt, 1e-4)
 
-    Etz = vcat([vec(sum(model.θ[d][m], 2)) for m in 1:model.M]...)
-    if any(isnan(Etz))
-        println("Etz ", Etz)
+    Etz = vcat([
+        vec(sum(model.X[d][m][:, 2]' .* model.θ[d][m], 2))
+        for m in 1:model.M
+    ]...)
+    sum_Etz = Array(Float64, sum(model.K))
+    start = 1
+    for k in model.K
+        stop = start + k - 1
+        sum_Etz[start:stop] .= sum(Etz[start:stop])
+        start = stop + 1
     end
 
     max_objective!(
         opt, (λ, ∇λ) -> laplace_λ_objective(
-            λ, ∇λ, Etz, model.μ, model.invΣ, model.K
+            λ, ∇λ, Etz, sum_Etz, model.μ, model.invΣ, model.K
         )
     )
     (optobj, optλ, ret) = optimize(opt, model.λ[d])
     model.λ[d] .= optλ
+    model.laplaceΣ[d] .= -inv(calculate_∇2f(
+        optλ, Etz, sum_Etz, model.μ, model.invΣ, model.K
+    ))
 end
 
 function laplace_update_θ!(model::MMCTM, d::Int)
-    Eeη = exp(model.μ + diag(model.Σ) / 2)
+    props = exp(calculate_logprops(model.λ[d], model.K))
 
     start = 1
     for m in 1:model.M
         stop = start + model.K[m] - 1
 
-        Etz = vec(sum(model.θ[d][m], 2))
         ϕ = hcat([model.γ[m][k] ./ sum(model.γ[m][k]) for k in 1:model.K[m]]...)
 
         for w in 1:size(model.X[d][m], 1)
             v = model.X[d][m][w, 1]
-            model.θ[d][m][:, w] .= exp((Eeη[start:stop] .+ ϕ[v, :])' * Etz)
-            if any(isinf(model.θ[d][m][:, w]))
-                println("θ ", model.θ[d][m][:, w])
-                println("Eeη ", Eeη[start:stop], start, stop)
-                println(ϕ[v, :], v)
-                println(Eeη[start:stop] .+ ϕ[v, :])
-                println((Eeη[start:stop] .+ ϕ[v, :])' * Etz)
-                println("done")
-            end
+            model.θ[d][m][:, w] .= props[start:stop] .* ϕ[v, :]
         end
         model.θ[d][m] ./= sum(model.θ[d][m], 1)
 
         start = stop + 1
     end
+end
 
+function laplace_update_Σ!(model::MMCTM)
+    model.Σ .= sum(model.laplaceΣ)
+    for d in 1:model.D
+        diff = model.λ[d] .- model.μ
+        model.Σ .+= diff * diff'
+    end
+    model.Σ ./= model.D
+    model.invΣ .= inv(model.Σ)
 end
 
 function calculate_ElnPϕ(model::MMCTM)
@@ -545,17 +559,12 @@ function laplace_fit!(model::MMCTM; maxiter=100, verbose=true)
 
     for iter in 1:maxiter
         for d in 1:model.D
-            println("θ")
             laplace_update_θ!(model, d)
-            println("λ")
             laplace_update_λ!(model, d)
         end
 
-        println("μ")
         update_μ!(model)
-        println("Σ")
-        update_Σ!(model)
-        println("γ")
+        laplace_update_Σ!(model)
         update_γ!(model)
 
         push!(ll, calculate_loglikelihoods(model.X, model))
