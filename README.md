@@ -1,6 +1,6 @@
 # MultiModalMuSig
 
-[![Build Status](https://travis-ci.org/funnell/MultiModalMuSig.jl.svg?branch=master)](https://travis-ci.org/funnell/MultiModalMuSig.jl)
+[![Build Status](https://travis-ci.com/funnell/MultiModalMuSig.jl.svg?token=x1w6qwZCiTjuvfEXTgsz&branch=master)](https://travis-ci.com/funnell/MultiModalMuSig.jl)
 
 [![Coverage Status](https://coveralls.io/repos/funnell/MultiModalMuSig.jl/badge.svg?branch=master&service=github)](https://coveralls.io/github/funnell/MultiModalMuSig.jl?branch=master)
 
