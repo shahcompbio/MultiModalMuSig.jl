@@ -17,8 +17,6 @@ type MMCTM
     γ::Vector{Vector{Vector{Float64}}}
     Elnϕ::Vector{Vector{Vector{Float64}}}
 
-    laplaceΣ::Vector{Matrix{Float64}}
-
     X::Vector{Vector{Matrix{Int}}}
 
     converged::Bool
@@ -51,8 +49,6 @@ type MMCTM
         model.μ = zeros(MK)
         model.Σ = eye(MK)
         model.invΣ = eye(MK)
-
-        model.laplaceΣ = [eye(MK) for d in 1:model.D]
 
         model.θ = [
             [
@@ -203,108 +199,6 @@ function update_γ!(model::MMCTM)
         end
     end
     update_Elnϕ!(model)
-end
-
-function svi_update_μ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
-    model.μ .= (1 - ρ) * model.μ + ρ * mean(model.λ[docs])
-end
-
-function svi_update_Σ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
-    Σ = sum(diagm.(model.ν[docs]))
-    for d in docs
-        diff = model.λ[d] .- model.μ
-        Σ .+= diff * diff'
-    end
-    Σ ./= length(docs)
-
-    model.Σ .= (1 - ρ) * model.Σ + ρ * Σ
-    model.invΣ .= inv(model.Σ)
-end
-
-function svi_update_γ!(model::MMCTM, docs::Vector{Int}, ρ::Float64)
-    γ = [
-        [
-            fill(model.α[m], model.V[m]) for k in 1:model.K[m]
-        ] for m in 1:model.M
-    ]
-    for d in docs
-        for m in 1:model.M
-            Nθ = model.θ[d][m] .* model.X[d][m][:, 2]'
-            for w in 1:size(model.X[d][m])[1]
-                v = model.X[d][m][w, 1]
-                for k in 1:model.K[m]
-                    γ[m][k][v] += Nθ[k, w]
-                end
-            end
-        end
-    end
-    for m in 1:model.M
-        for k in 1:model.K[m]
-            model.γ[m][k] .= (
-                (1 - ρ) * model.γ[m][k] .+ ρ * model.D / length(docs) * γ[m][k]
-            )
-        end
-    end
-
-    update_Elnϕ!(model)
-end
-
-function laplace_update_λ!(model::MMCTM, d::Int)
-    opt = Opt(:LD_MMA, sum(model.K))
-    #xtol_rel!(opt, 1e-4)
-    xtol_abs!(opt, 1e-4)
-
-    Etz = vcat([
-        vec(sum(model.X[d][m][:, 2]' .* model.θ[d][m], 2))
-        for m in 1:model.M
-    ]...)
-    sum_Etz = Array(Float64, sum(model.K))
-    start = 1
-    for k in model.K
-        stop = start + k - 1
-        sum_Etz[start:stop] .= sum(Etz[start:stop])
-        start = stop + 1
-    end
-
-    max_objective!(
-        opt, (λ, ∇λ) -> laplace_λ_objective(
-            λ, ∇λ, Etz, sum_Etz, model.μ, model.invΣ, model.K
-        )
-    )
-    (optobj, optλ, ret) = optimize(opt, model.λ[d])
-    model.λ[d] .= optλ
-    model.laplaceΣ[d] .= -inv(calculate_∇2f(
-        optλ, Etz, sum_Etz, model.μ, model.invΣ, model.K
-    ))
-end
-
-function laplace_update_θ!(model::MMCTM, d::Int)
-    props = exp(calculate_logprops(model.λ[d], model.K))
-
-    start = 1
-    for m in 1:model.M
-        stop = start + model.K[m] - 1
-
-        ϕ = hcat([model.γ[m][k] ./ sum(model.γ[m][k]) for k in 1:model.K[m]]...)
-
-        for w in 1:size(model.X[d][m], 1)
-            v = model.X[d][m][w, 1]
-            model.θ[d][m][:, w] .= props[start:stop] .* ϕ[v, :]
-        end
-        model.θ[d][m] ./= sum(model.θ[d][m], 1)
-
-        start = stop + 1
-    end
-end
-
-function laplace_update_Σ!(model::MMCTM)
-    model.Σ .= sum(model.laplaceΣ)
-    for d in 1:model.D
-        diff = model.λ[d] .- model.μ
-        model.Σ .+= diff * diff'
-    end
-    model.Σ ./= model.D
-    model.invΣ .= inv(model.Σ)
 end
 
 function calculate_ElnPϕ(model::MMCTM)
@@ -504,80 +398,6 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
         end
     end
     model.elbo = calculate_elbo(model)
-    model.ll = ll[end]
-
-    return ll
-end
-
-function svi!(model::MMCTM; epochs=100, batchsize=25, verbose=true)
-    ll = Vector{Float64}[]
-    elbos = Float64[]
-
-    batches = Int(ceil(model.D / batchsize))
-    for epoch in 1:epochs
-        docs = shuffle(1:model.D)
-        batchstart = 1
-        batchstop = batchsize
-
-        for iter in 1:batches
-            batch = docs[batchstart:batchstop]
-            for d in batch
-                fitdoc!(model, d)
-            end
-            batchstart = batchstop + 1
-            batchstop += batchsize
-            batchstop = min(batchstop, model.D)
-
-            ρ = Float64((epoch - 1) * batches + iter + 1) ^ (-1)
-
-            svi_update_μ!(model, batch, ρ)
-            svi_update_Σ!(model, batch, ρ)
-            svi_update_γ!(model, batch, ρ)
-        end
-
-        push!(ll, calculate_loglikelihoods(model.X, model))
-        push!(elbos, calculate_elbo(model))
-
-        if verbose
-            println("$epoch\tLog-likelihoods: ", join(ll[end], ", "))
-        end
-        if length(ll) > 30 && check_convergence(ll, tol=1e-5)
-            model.converged = true
-            break
-        end
-
-    end
-
-    model.elbo = calculate_elbo(model)
-    model.ll = ll[end]
-
-    return ll, elbos
-end
-
-function laplace_fit!(model::MMCTM; maxiter=100, verbose=true)
-    ll = Vector{Float64}[]
-
-    for iter in 1:maxiter
-        for d in 1:model.D
-            laplace_update_θ!(model, d)
-            laplace_update_λ!(model, d)
-        end
-
-        update_μ!(model)
-        laplace_update_Σ!(model)
-        update_γ!(model)
-
-        push!(ll, calculate_loglikelihoods(model.X, model))
-
-        if verbose
-            println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
-        end
-
-        if length(ll) > 10 && check_convergence(ll)
-            model.converged = true
-            break
-        end
-    end
     model.ll = ll[end]
 
     return ll
