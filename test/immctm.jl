@@ -1,7 +1,5 @@
-module MultiModalMuSigTests
-
 using MultiModalMuSig
-using FactCheck
+using Base.Test
 
 K = [2, 3]
 α = [0.1, 0.1]
@@ -50,32 +48,32 @@ X = Vector{Matrix{Int}}[
     ],
 ]
 
-facts("constructor") do
+@testset "constructor" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
-    @fact model.D --> 2
-    @fact model.N --> [[13, 7], [13, 10]]
-    @fact model.M --> 2
-    @fact model.I --> [2, 2]
-    @fact model.J --> [[2, 2], [2, 2]]
-    @fact model.V --> [4, 4]
+    @test model.D == 2
+    @test model.N == [[13, 7], [13, 10]]
+    @test model.M == 2
+    @test model.I == [2, 2]
+    @test model.J == [[2, 2], [2, 2]]
+    @test model.V == [4, 4]
 
-    @fact length(model.μ) --> 5
-    @fact size(model.Σ) --> (5, 5)
-    @fact size(model.invΣ) --> (5, 5)
+    @test length(model.μ) == 5
+    @test size(model.Σ) == (5, 5)
+    @test size(model.invΣ) == (5, 5)
 
-    @fact length(model.ζ) --> 2
-    @fact length(model.ζ[1]) --> 2
-    @fact sum(model.θ[1][1], 1) --> roughly(ones(2)')
-    @fact length(model.λ[1]) --> 5
-    @fact model.ν[1] --> ones(5)
+    @test length(model.ζ) == 2
+    @test length(model.ζ[1]) == 2
+    @test sum(model.θ[1][1], 1) ≈ ones(2)'
+    @test length(model.λ[1]) == 5
+    @test model.ν[1] == ones(5)
 
-    @fact length(model.γ) --> 2
-    @fact length(model.γ[1]) --> 2
-    @fact length(model.γ[1][1]) --> 2
-    @fact length(model.γ[1][1][1]) --> 2
+    @test length(model.γ) == 2
+    @test length(model.γ[1]) == 2
+    @test length(model.γ[1][1]) == 2
+    @test length(model.γ[1][1][1]) == 2
 end
 
-facts("calculate_Ndivζ") do
+@testset "calculate_Ndivζ" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.ζ = [[2, 3], [4,5]]
 
@@ -87,10 +85,10 @@ facts("calculate_Ndivζ") do
         sum(X[1][2][:, 2]) / model.ζ[1][2]
     ]
 
-    @fact MultiModalMuSig.calculate_Ndivζ(model, 1) --> roughly(Ndivζ)
+    @test MultiModalMuSig.calculate_Ndivζ(model, 1) ≈ Ndivζ
 end
 
-facts("calculate_sumθ") do
+@testset "calculate_sumθ" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     θ = Matrix{Float64}[]
     push!(θ, [0.4 0.1; 0.6 0.9])
@@ -105,10 +103,10 @@ facts("calculate_sumθ") do
         X[1][2][1, 2] * θ[2][3, 1] + X[1][2][2, 2] * θ[2][3, 2],
     ]
 
-    @fact MultiModalMuSig.calculate_sumθ(model, 1) --> roughly(sumθ)
+    @test MultiModalMuSig.calculate_sumθ(model, 1) ≈ sumθ
 end
 
-facts("λ_objective") do
+@testset "λ_objective" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
 
     μ = Float64[1, 1, 2, 2, 1]
@@ -138,7 +136,7 @@ facts("λ_objective") do
     sumθ = vcat([vec(sum(θ[m] .* X[1][m][:, 2]', 2)) for m in 1:model.M]...)
     Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
     objective = MultiModalMuSig.λ_objective(λ, ∇λ, ν, Ndivζ, sumθ, μ, invΣ)
-    @fact objective --> roughly(L)
+    @test objective ≈ L
 
     grad = -invΣ * diff
     grad[1] += (
@@ -161,7 +159,7 @@ facts("λ_objective") do
         X[1][2][1, 2] * θ[2][3, 1] + X[1][2][2, 2] * θ[2][3, 2]
         - sum(X[1][2][:, 2]) / ζ[2] * exp(λ[5] + 0.5ν[5])
     )
-    @fact ∇λ --> roughly(grad)
+    @test ∇λ ≈ grad
 
     model.μ = μ
     model.λ[1] = λ
@@ -169,10 +167,10 @@ facts("λ_objective") do
     model.ζ[1] = ζ
     model.θ[1] = θ
     MultiModalMuSig.update_λ!(model, 1)
-    @fact (model.λ[1] .> -20.0) | (model.λ[1] .< 20.0) --> fill(true, sum(K))
+    @test (model.λ[1] .> -20.0) | (model.λ[1] .< 20.0) == fill(true, sum(K))
 end
 
-facts("ν_objective") do
+@testset "ν_objective" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
 
     μ = Float64[1, 1, 2, 2, 1]
@@ -192,7 +190,7 @@ facts("ν_objective") do
     ∇ν = Array(Float64, sum(K))
     Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
     objective = MultiModalMuSig.ν_objective(ν, ∇ν, λ, Ndivζ, μ, invΣ)
-    @fact objective --> roughly(L)
+    @test objective ≈ L
 
     grad = -0.5 * diag(invΣ)
     grad[1] += (
@@ -210,28 +208,28 @@ facts("ν_objective") do
     grad[5] += (
         -sum(X[1][2][:, 2]) / (2 * ζ[2]) * exp(λ[5] + 0.5ν[5]) + 1 / (2ν[5])
     )
-    @fact ∇ν --> roughly(grad)
+    @test ∇ν ≈ grad
 
     model.μ = μ
     model.λ[1] = λ
     model.ν[1] = ν
     model.ζ[1] = ζ
     MultiModalMuSig.update_ν!(model, 1)
-    @fact (model.ν[1] .> 0.0) --> fill(true, sum(K))
-    @fact (model.λ[1] .< 100.0) --> fill(true, sum(K))
+    @test (model.ν[1] .> 0.0) == fill(true, sum(K))
+    @test (model.λ[1] .< 100.0) == fill(true, sum(K))
 end
 
-facts("update_ζ!") do
+@testset "update_ζ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
     model.ν = [[1,1,1,2,1], [1,3,1,2,1]]
     MultiModalMuSig.update_ζ!(model, 1)
 
     ζ = Float64[exp(1.5) + exp(2.5), exp(3.5) + exp(5) + exp(1.5)]
-    @fact model.ζ[1] --> roughly(ζ)
+    @test model.ζ[1] ≈ ζ
 end
 
-facts("update_θ!") do
+@testset "update_θ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
     model.γ = [
@@ -256,9 +254,9 @@ facts("update_θ!") do
     θ[:, 1] ./= sum(θ[:, 1])
     θ[:, 2] ./= sum(θ[:, 2])
 
-    @fact sum(model.θ[1][1], 1) --> roughly(ones(size(X[1][1])[1])')
-    @fact model.θ[1][1] --> roughly(θ)
-    @fact any(model.θ[1][1] .< 0.0) --> false
+    @test sum(model.θ[1][1], 1) ≈ ones(size(X[1][1])[1])'
+    @test model.θ[1][1] ≈ θ
+    @test any(model.θ[1][1] .< 0.0) == false
 
     MultiModalMuSig.update_θ!(model, 2)
     θ = Array(Float64, 3, 2)
@@ -271,19 +269,19 @@ facts("update_θ!") do
     θ[:, 1] ./= sum(θ[:, 1])
     θ[:, 2] ./= sum(θ[:, 2])
 
-    @fact model.θ[2][2] --> roughly(θ)
+    @test model.θ[2][2] ≈ θ
 end
 
-facts("update_μ!") do
+@testset "update_μ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
 
     MultiModalMuSig.update_μ!(model)
 
-    @fact model.μ --> roughly([1.5, 2.5, 2.0, 4.0, 1.5])
+    @test model.μ ≈ [1.5, 2.5, 2.0, 4.0, 1.5]
 end
 
-facts("update_Σ!") do
+@testset "update_Σ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.λ = [[1,2,3,4,1], [2,3,1,4,2]]
     model.ν = [[1,1,1,2,1], [1,3,1,2,1]]
@@ -297,11 +295,11 @@ facts("update_Σ!") do
         diagm(model.ν[1]) + diagm(model.ν[2]) +
         (diff1 * diff1') + (diff2 * diff2')
     )
-    @fact model.Σ --> roughly(Σ)
-    @fact model.invΣ --> roughly(inv(Σ))
+    @test model.Σ ≈ Σ
+    @test model.invΣ ≈ inv(Σ)
 end
 
-facts("update_γ!") do
+@testset "update_γ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.θ[1][1] = [0.4 0.1; 0.6 0.9]
     model.θ[2][1] = [0.3 0.5; 0.7 0.5]
@@ -309,74 +307,74 @@ facts("update_γ!") do
 
     γ1 = [0.1 + 5 * 0.4 + 8 * 0.1, 0.1 + 4 * 0.3 + 9 * 0.5]
     γ2 = [0.1 + 5 * 0.4 + 4 * 0.3, 0.1 + 8 * 0.1 + 9 * 0.5]
-    @fact model.γ[1][1][1] --> roughly(γ1)
-    @fact model.γ[1][1][2] --> roughly(γ2)
+    @test model.γ[1][1][1] ≈ γ1
+    @test model.γ[1][1][2] ≈ γ2
 end
 
-facts("update_Elnϕ!") do
+@testset "update_Elnϕ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     model.γ[1][1][1] .= [1, 2]
 
     MultiModalMuSig.update_Elnϕ!(model)
 
-    @fact model.Elnϕ[1][1][1][1] --> roughly(digamma(1) - digamma(3))
+    @test model.Elnϕ[1][1][1][1] ≈ digamma(1) - digamma(3)
 end
 
-facts("calculate_ElnPϕ") do
+@testset "calculate_ElnPϕ" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnPϕ = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnPϕ(model) --> roughly(ElnPϕ)
+    #@test MultiModalMuSig.calculate_ElnPϕ(model) ≈ ElnPϕ
 end
 
-facts("calculate_ElnPη") do
+@testset "calculate_ElnPη" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnPη = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnPη(model) --> roughly(ElnPη)
+    #@test MultiModalMuSig.calculate_ElnPη(model) ≈ ElnPη
 end
 
-facts("calculate_ElnPZ") do
+@testset "calculate_ElnPZ" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnPZ = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnPZ(model) --> roughly(ElnPZ)
+    #@test MultiModalMuSig.calculate_ElnPZ(model) ≈ ElnPZ
 end
 
-facts("calculate_ElnPX") do
+@testset "calculate_ElnPX" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnPX = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnPX(model) --> roughly(ElnPX)
+    #@test MultiModalMuSig.calculate_ElnPX(model) ≈ ElnPX
 end
 
-facts("calculate_ElnQϕ") do
+@testset "calculate_ElnQϕ" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnQϕ = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnQϕ(model) --> roughly(ElnQϕ)
+    #@test MultiModalMuSig.calculate_ElnQϕ(model) ≈ ElnQϕ
 end
 
-facts("calculate_ElnQη") do
+@testset "calculate_ElnQη" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnQη = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnQη(model) --> roughly(ElnQη)
+    #@test MultiModalMuSig.calculate_ElnQη(model) ≈ ElnQη
 end
 
-facts("calculate_ElnQZ") do
+@testset "calculate_ElnQZ" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ElnQZ = 0.0
-    @pending @fact MultiModalMuSig.calculate_ElnQZ(model) --> roughly(ElnQZ)
+    #@test MultiModalMuSig.calculate_ElnQZ(model) ≈ ElnQZ
 end
 
-facts("calculate_elbo") do
+@testset "calculate_elbo" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
-    @fact MultiModalMuSig.calculate_elbo(model) --> less_than(0.0)
+    @test MultiModalMuSig.calculate_elbo(model) < 0.0
 end
 
-facts("fit") do
+@testset "fit" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
     ll = MultiModalMuSig.fit!(model, maxiter=1, verbose=false) 
-    @fact length(ll) --> 1
-    @fact length(ll[1]) --> 2
+    @test length(ll) == 1
+    @test length(ll[1]) == 2
 end
 
-facts("loglikelihoods") do 
+@testset "loglikelihoods"  begin
     η = [[1.0, 2.0], [2.0, 3.0]]
     θ = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:2]
 
@@ -411,8 +409,5 @@ facts("loglikelihoods") do
         Xm1, η, ϕ, features[1]
     )
 
-    @fact res --> roughly(ll)
-end
-
-FactCheck.exitstatus()
+    @test res ≈ ll
 end
