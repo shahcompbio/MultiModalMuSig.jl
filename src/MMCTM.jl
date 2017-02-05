@@ -210,6 +210,15 @@ function update_γ!(model::MMCTM)
     update_Elnϕ!(model)
 end
 
+function update_α!(model::MMCTM)
+    for m in 1:model.M
+        ∇α = model.K[m] * (digamma(sum(model.α[m])) .- digamma(model.α[m]))
+        for k in 1:model.K[m]
+            ∇α .+= digamma(model.γ[m][k]) .- digamma(sum(model.γ[m][k]))
+        end
+    end
+end
+
 function calculate_ElnPϕ(model::MMCTM)
     lnp = 0.0
 
