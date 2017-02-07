@@ -8,7 +8,7 @@ type MMCTM
     μ::Vector{Float64}
     Σ::Matrix{Float64}
     invΣ::Matrix{Float64}
-    α::Vector{Float64}
+    α::Vector{Vector{Float64}}
 
     ζ::Vector{Vector{Float64}}
     θ::Vector{Vector{Matrix{Float64}}}
@@ -23,19 +23,18 @@ type MMCTM
     elbo::Float64
     ll::Vector{Float64}
 
-    function MMCTM(k::Vector{Int}, α::Vector{Float64}, V::Vector{Int},
+    function MMCTM(k::Vector{Int}, α::Vector{Vector{Float64}}, V::Vector{Int},
             X::Vector{Vector{Matrix{Int}}})
         model = new()
 
-        model.K = k
-        model.α = α
+        model.K = copy(k)
+        model.α = deepcopy(α)
         model.X = X
-
         model.D = length(X)
         model.M = length(k)
+        model.N = [[sum(X[d][m][:, 2]) for m in 1:model.M] for d in 1:model.D]
 
         model.V = copy(V)
-        model.N = [[sum(X[d][m][:, 2]) for m in 1:model.M] for d in 1:model.D]
 
         MK = sum(model.K)
 
@@ -67,6 +66,13 @@ type MMCTM
 
         return model
     end
+end
+
+function MMCTM(k::Vector{Int}, α::Vector{Float64}, V::Vector{Int},
+        X::Vector{Vector{Matrix{Int}}})
+    M = length(k)
+    newα = [fill(α[m], V[m]) for m in 1:M]
+    return MMCTM(k, newα, V, X)
 end
 
 function MMCTM(k::Vector{Int}, α::Vector{Float64},
@@ -191,9 +197,7 @@ end
 function update_γ!(model::MMCTM)
     for m in 1:model.M
         for k in 1:model.K[m]
-            for v in 1:model.V[m]
-                model.γ[m][k][v] = model.α[m] 
-            end
+            model.γ[m][k] .= model.α[m] 
         end
     end
     for d in 1:model.D
@@ -210,11 +214,36 @@ function update_γ!(model::MMCTM)
     update_Elnϕ!(model)
 end
 
+function calculate_∇α(α::Vector{Float64}, γ::Vector{Vector{Float64}}, K::Int)
+    ∇α = K * (digamma(sum(α)) .- digamma(α))
+    for k in 1:K
+        ∇α .+= digamma(γ[k]) .- digamma(sum(γ[k]))
+    end
+    return ∇α
+end
+
+function calculate_Δα(α::Vector{Float64}, γ::Vector{Vector{Float64}}, K::Int)
+    ∇α = calculate_∇α(α, γ, K)
+    q = -model.K[m] * trigamma(model.α[m])
+    c = model.K[m] * trigamma(sum(model.α[m]))
+    b = sum(∇α ./ q) ./ ((1 / c) + sum(1 ./ q))
+    return -(∇α - b) ./ q
+end
+
 function update_α!(model::MMCTM)
     for m in 1:model.M
-        ∇α = model.K[m] * (digamma(sum(model.α[m])) .- digamma(model.α[m]))
-        for k in 1:model.K[m]
-            ∇α .+= digamma(model.γ[m][k]) .- digamma(sum(model.γ[m][k]))
+        i = 1
+        for i in 1:100
+            Δα = calculate_Δα(model.α[m], model.γ[m], model.K[m])
+            model.α[m] .+= Δα
+
+            if maximum(Δα ./ model.α[m]) < 1e-4
+                println("α update converged")
+                break
+            end
+        end
+        if i == 100
+            println("α update not converged")
         end
     end
 end
@@ -224,9 +253,9 @@ function calculate_ElnPϕ(model::MMCTM)
 
     for m in 1:model.M
         for k in 1:model.K[m]
-            lnp -= logmvbeta(fill(model.α[m], model.V[m]))
+            lnp -= logmvbeta(model.α[m])
             for v in 1:model.V[m]
-                lnp += (model.α[m] - 1) * model.Elnϕ[m][k][v]
+                lnp += (model.α[m][v] - 1) * model.Elnϕ[m][k][v]
             end
         end
     end
