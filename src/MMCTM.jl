@@ -214,36 +214,74 @@ function update_γ!(model::MMCTM)
     update_Elnϕ!(model)
 end
 
-function calculate_∇α(α::Vector{Float64}, γ::Vector{Vector{Float64}}, K::Int)
-    ∇α = K * (digamma(sum(α)) .- digamma(α))
+function calculate_∇α(α::Vector{Float64}, Elnϕ::Vector{Vector{Float64}},
+        K::Int, t::Float64)
+    ∇α = K * (digamma(sum(α)) .- digamma(α)) .+ t ./ α
     for k in 1:K
-        ∇α .+= digamma(γ[k]) .- digamma(sum(γ[k]))
+        ∇α .+= Elnϕ[k]
     end
     return ∇α
 end
 
-function calculate_Δα(α::Vector{Float64}, γ::Vector{Vector{Float64}}, K::Int)
-    ∇α = calculate_∇α(α, γ, K)
-    q = -model.K[m] * trigamma(model.α[m])
-    c = model.K[m] * trigamma(sum(model.α[m]))
+function calculate_Δα(α::Vector{Float64}, ∇α::Vector{Float64},
+        K::Int, t::Float64)
+    q = -K * trigamma(α) .- t ./ α .^ 2
+    c = K * trigamma(sum(α))
     b = sum(∇α ./ q) ./ ((1 / c) + sum(1 ./ q))
     return -(∇α - b) ./ q
 end
 
+function calculate_Lα(α::Vector{Float64}, Elnϕ::Vector{Vector{Float64}},
+        K::Int, t::Float64)
+    L = K * (lgamma(sum(α)) - sum(lgamma(α))) + t * sum(log(α))
+    for k in 1:K
+        L += sum((α .- 1) .* Elnϕ[k])
+    end
+    return L
+end
+
+function armijo_α(α::Vector{Float64}, ∇α::Vector{Float64}, Δα::Vector{Float64},
+        ρ::Float64, Elnϕ::Vector{Vector{Float64}}, K::Int, t::Float64)
+    L = calculate_Lα(α, Elnϕ, K, t)
+    Lnew = calculate_Lα(α .+ ρ * Δα, Elnϕ, K, t)
+    return Lnew >= L + 1e-4 * ρ * (∇α' * Δα)[1]
+end
+
+function newton_opt_α!(α::Vector{Float64}, Elnϕ::Vector{Vector{Float64}},
+        K::Int, t::Float64)
+    ρ = 1.0
+    for i in 1:100
+        ∇α = calculate_∇α(α, Elnϕ, K, t)
+        Δα = calculate_Δα(α, ∇α, K, t)
+
+        while any((α .+ ρ * Δα) .< 0)
+            ρ *= 0.5
+        end
+        while !armijo_α(α, ∇α, Δα, ρ, Elnϕ, K, t)
+            ρ *= 0.5
+        end
+        α .+= ρ * Δα
+
+        if maximum(Δα ./ α) < 1e-5
+            break
+        end
+    end
+end
+
 function update_α!(model::MMCTM)
     for m in 1:model.M
-        i = 1
-        for i in 1:100
-            Δα = calculate_Δα(model.α[m], model.γ[m], model.K[m])
-            model.α[m] .+= Δα
+        old_α = copy(model.α[m])
+        t = 1.0
 
-            if maximum(Δα ./ model.α[m]) < 1e-4
-                println("α update converged")
+        for i in 1:100
+            newton_opt_α!(model.α[m], model.Elnϕ[m], model.K[m], t)   
+
+            if maximum(abs(model.α[m] .- old_α) ./ abs(model.α[m])) < 1e-5
                 break
             end
-        end
-        if i == 100
-            println("α update not converged")
+
+            old_α = copy(model.α[m])
+            t *= 0.1
         end
     end
 end
@@ -421,7 +459,7 @@ function fitdoc!(model::MMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true)
+function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
@@ -432,6 +470,9 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true)
         update_μ!(model)
         update_Σ!(model)
         update_γ!(model)
+        if autoα
+            update_α!(model)
+        end
 
         push!(ll, calculate_loglikelihoods(model.X, model))
 
