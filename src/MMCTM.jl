@@ -214,75 +214,32 @@ function update_γ!(model::MMCTM)
     update_Elnϕ!(model)
 end
 
-function calculate_∇α(α::Vector{Float64}, Elnϕ::Vector{Vector{Float64}},
-        K::Int, t::Float64)
-    ∇α = K * (digamma(sum(α)) .- digamma(α)) .+ t ./ α
-    for k in 1:K
-        ∇α .+= Elnϕ[k]
+function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
+        sum_Elnϕ::Float64, K::Int, V::Int)
+
+    if length(∇α) > 0
+        ∇α[1] = K * V * (digamma(V * α[1]) - digamma(α[1])) + sum_Elnϕ
     end
-    return ∇α
-end
 
-function calculate_Δα(α::Vector{Float64}, ∇α::Vector{Float64},
-        K::Int, t::Float64)
-    q = -K * trigamma(α) .- t ./ α .^ 2
-    c = K * trigamma(sum(α))
-    b = sum(∇α ./ q) ./ ((1 / c) + sum(1 ./ q))
-    return -(∇α - b) ./ q
-end
-
-function calculate_Lα(α::Vector{Float64}, Elnϕ::Vector{Vector{Float64}},
-        K::Int, t::Float64)
-    L = K * (lgamma(sum(α)) - sum(lgamma(α))) + t * sum(log(α))
-    for k in 1:K
-        L += sum((α .- 1) .* Elnϕ[k])
-    end
-    return L
-end
-
-function armijo_α(α::Vector{Float64}, ∇α::Vector{Float64}, Δα::Vector{Float64},
-        ρ::Float64, Elnϕ::Vector{Vector{Float64}}, K::Int, t::Float64)
-    L = calculate_Lα(α, Elnϕ, K, t)
-    Lnew = calculate_Lα(α .+ ρ * Δα, Elnϕ, K, t)
-    return Lnew >= L + 1e-4 * ρ * (∇α' * Δα)[1]
-end
-
-function newton_opt_α!(α::Vector{Float64}, Elnϕ::Vector{Vector{Float64}},
-        K::Int, t::Float64)
-    ρ = 1.0
-    for i in 1:100
-        ∇α = calculate_∇α(α, Elnϕ, K, t)
-        Δα = calculate_Δα(α, ∇α, K, t)
-
-        while any((α .+ ρ * Δα) .< 0)
-            ρ *= 0.5
-        end
-        while !armijo_α(α, ∇α, Δα, ρ, Elnϕ, K, t)
-            ρ *= 0.5
-        end
-        α .+= ρ * Δα
-
-        if maximum(Δα ./ α) < 1e-5
-            break
-        end
-    end
+    return K * (lgamma(V * α[1]) - V * lgamma(α[1])) + α[1] * sum_Elnϕ
 end
 
 function update_α!(model::MMCTM)
+    opt = Opt(:LD_LBFGS, 1)
+    lower_bounds!(opt, 1e-7)
+    xtol_rel!(opt, 1e-5)
+    xtol_abs!(opt, 1e-5)
+
     for m in 1:model.M
-        old_α = copy(model.α[m])
-        t = 1.0
+        sum_Elnϕ = sum(sum(model.Elnϕ[m][k] for k in 1:model.K[m]))
 
-        for i in 1:100
-            newton_opt_α!(model.α[m], model.Elnϕ[m], model.K[m], t)   
+        max_objective!(
+            opt,
+            (α, ∇α) -> α_objective(α, ∇α, sum_Elnϕ, model.K[m], model.V[m])
+        )
 
-            if maximum(abs(model.α[m] .- old_α) ./ abs(model.α[m])) < 1e-5
-                break
-            end
-
-            old_α = copy(model.α[m])
-            t *= 0.1
-        end
+        (optobj, optα, ret) = optimize(opt, model.α[m][1:1])
+        model.α[m] .= optα[1]
     end
 end
 
