@@ -8,7 +8,7 @@ type MMCTM
     μ::Vector{Float64}
     Σ::Matrix{Float64}
     invΣ::Matrix{Float64}
-    α::Vector{Vector{Float64}}
+    α::Vector{Float64}
 
     ζ::Vector{Vector{Float64}}
     θ::Vector{Vector{Matrix{Float64}}}
@@ -28,7 +28,7 @@ type MMCTM
         model = new()
 
         model.K = copy(k)
-        model.α = deepcopy(α)
+        model.α = copy(α)
         model.X = X
         model.D = length(X)
         model.M = length(k)
@@ -214,16 +214,6 @@ function update_γ!(model::MMCTM)
     update_Elnϕ!(model)
 end
 
-function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
-        sum_Elnϕ::Float64, K::Int, V::Int)
-
-    if length(∇α) > 0
-        ∇α[1] = K * V * (digamma(V * α[1]) - digamma(α[1])) + sum_Elnϕ
-    end
-
-    return K * (lgamma(V * α[1]) - V * lgamma(α[1])) + α[1] * sum_Elnϕ
-end
-
 function update_α!(model::MMCTM)
     opt = Opt(:LD_LBFGS, 1)
     lower_bounds!(opt, 1e-7)
@@ -238,8 +228,8 @@ function update_α!(model::MMCTM)
             (α, ∇α) -> α_objective(α, ∇α, sum_Elnϕ, model.K[m], model.V[m])
         )
 
-        (optobj, optα, ret) = optimize(opt, model.α[m][1:1])
-        model.α[m] .= optα[1]
+        (optobj, optα, ret) = optimize(opt, model.α[m:m])
+        model.α[m] = optα[1]
     end
 end
 
@@ -248,9 +238,9 @@ function calculate_ElnPϕ(model::MMCTM)
 
     for m in 1:model.M
         for k in 1:model.K[m]
-            lnp -= logmvbeta(model.α[m])
+            lnp -= logmvbeta(fill(model.α[m], model.V[m]))
             for v in 1:model.V[m]
-                lnp += (model.α[m][v] - 1) * model.Elnϕ[m][k][v]
+                lnp += (model.α[m] - 1) * model.Elnϕ[m][k][v]
             end
         end
     end

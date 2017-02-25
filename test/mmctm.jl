@@ -325,6 +325,33 @@ end
     @test model.Elnϕ[1][1][1] ≈ digamma(1) - digamma(7)
 end
 
+@testset "update_α!" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+
+    sum_Elnϕ = sum(model.Elnϕ[1][1]) + sum(model.Elnϕ[1][2])
+    L = K[1] * (lgamma(4α[1]) - 4lgamma(α[1])) + α[1] * sum_Elnϕ
+    grad = 4K[1] * (digamma(4α[1]) - digamma(α[1])) + sum_Elnϕ
+
+    ∇α = Array{Float64}(1)
+    @test MultiModalMuSig.α_objective(model.α[1:1], ∇α, sum_Elnϕ, K[1], 4) ≈ L
+    @test ∇α[1] ≈ grad
+
+    sum_Elnϕ = (
+        sum(model.Elnϕ[2][1]) + sum(model.Elnϕ[2][2]) + sum(model.Elnϕ[2][3])
+    )
+    L_before = (
+        K[2] * (lgamma(4model.α[2]) - 4lgamma(model.α[2])) +
+        model.α[2] * sum_Elnϕ
+    )
+    MultiModalMuSig.update_α!(model)
+    L_after = (
+        K[2] * (lgamma(4model.α[2]) - 4lgamma(model.α[2])) +
+        model.α[2] * sum_Elnϕ
+    )
+    @test model.α ≉ α
+    @test L_after > L_before
+end
+
 #@testset "calculate_ElnPϕ" begin
     #model = MultiModalMuSig.MMCTM(K, α, X)
     #ElnPϕ = 0.0

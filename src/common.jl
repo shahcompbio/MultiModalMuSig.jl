@@ -35,6 +35,16 @@ function ν_objective(ν::Vector{Float64}, ∇ν::Vector{Float64},
     return -0.5 * trace(diagm(ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log(ν)) / 2
 end
 
+function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
+        sum_Elnϕ::Float64, K::Int, V::Int)
+
+    if length(∇α) > 0
+        ∇α[1] = K * V * (digamma(V * α[1]) - digamma(α[1])) + sum_Elnϕ
+    end
+
+    return K * (lgamma(V * α[1]) - V * lgamma(α[1])) + α[1] * sum_Elnϕ
+end
+
 function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
     reldiff = maximum(abs(metric[end - 1] .- metric[end]) ./ abs(metric[end]))
     return reldiff < tol
