@@ -23,7 +23,7 @@ type MMCTM
     elbo::Float64
     ll::Vector{Float64}
 
-    function MMCTM(k::Vector{Int}, α::Vector{Float64},
+    function MMCTM(k::Vector{Int}, α::Vector{Float64}, V::Vector{Int},
             X::Vector{Vector{Matrix{Int}}})
         model = new()
 
@@ -34,14 +34,7 @@ type MMCTM
         model.D = length(X)
         model.M = length(k)
 
-        model.V = zeros(model.M)
-        for d in 1:model.D
-            for m in 1:model.M
-                if size(X[d][m], 1) > 0
-                    model.V[m] = max(model.V[m], maximum(X[d][m][:, 1]))
-                end
-            end
-        end
+        model.V = copy(V)
         model.N = [[sum(X[d][m][:, 2]) for m in 1:model.M] for d in 1:model.D]
 
         MK = sum(model.K)
@@ -74,6 +67,22 @@ type MMCTM
 
         return model
     end
+end
+
+function MMCTM(k::Vector{Int}, α::Vector{Float64},
+        X::Vector{Vector{Matrix{Int}}})
+    D = length(X)
+    M = length(k)
+    V = zeros(Int, M)
+    for d in 1:D
+        for m in 1:M
+            if size(X[d][m], 1) > 0
+                V[m] = max(V[m], maximum(X[d][m][:, 1]))
+            end
+        end
+    end
+
+    return MMCTM(k, α, V, X)
 end
 
 function calculate_sumθ(model::MMCTM, d::Int)
@@ -374,7 +383,7 @@ function fitdoc!(model::MMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::MMCTM; maxiter=100, verbose=true)
+function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
@@ -392,7 +401,7 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll)
+        if length(ll) > 10 && check_convergence(ll, tol=tol)
             model.converged = true
             break
         end

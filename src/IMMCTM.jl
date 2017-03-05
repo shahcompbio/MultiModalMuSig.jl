@@ -403,7 +403,7 @@ function fitdoc!(model::IMMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::IMMCTM; maxiter=100, verbose=true)
+function fit!(model::IMMCTM; maxiter=100, tol=1e-4, verbose=true)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
@@ -420,7 +420,7 @@ function fit!(model::IMMCTM; maxiter=100, verbose=true)
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll, tol=1e-5)
+        if length(ll) > 10 && check_convergence(ll, tol=tol)
             model.converged = true
             break
         end
