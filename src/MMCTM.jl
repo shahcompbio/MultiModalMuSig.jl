@@ -23,7 +23,7 @@ type MMCTM
     elbo::Float64
     ll::Vector{Float64}
 
-    function MMCTM(k::Vector{Int}, α::Vector{Vector{Float64}}, V::Vector{Int},
+    function MMCTM(k::Vector{Int}, α::Vector{Float64}, V::Vector{Int},
             X::Vector{Vector{Matrix{Int}}})
         model = new()
 
@@ -66,13 +66,6 @@ type MMCTM
 
         return model
     end
-end
-
-function MMCTM(k::Vector{Int}, α::Vector{Float64}, V::Vector{Int},
-        X::Vector{Vector{Matrix{Int}}})
-    M = length(k)
-    newα = [fill(α[m], V[m]) for m in 1:M]
-    return MMCTM(k, newα, V, X)
 end
 
 function MMCTM(k::Vector{Int}, α::Vector{Float64},
