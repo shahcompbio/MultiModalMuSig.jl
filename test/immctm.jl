@@ -106,68 +106,14 @@ end
     @test MultiModalMuSig.calculate_sumθ(model, 1) ≈ sumθ
 end
 
-@testset "λ_objective" begin
+@testset "update_λ!" begin
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
 
-    μ = Float64[1, 1, 2, 2, 1]
-    invΣ = model.invΣ
     λ = Float64[1, 2, 3, 4, 1]
-    ν = Float64[1, 1, 1, 2, 1]
-    ζ = Float64[2, 1]
-    θ = Matrix{Float64}[]
-    push!(θ, [0.4 0.1; 0.6 0.9])
-    push!(θ, [0.3 0.4; 0.3 0.5; 0.4 0.1])
+    model.λ[1] = copy(λ)
 
-    diff = λ .- μ
-    L = (
-        -0.5 * (diff' * invΣ * diff)[1] +
-        X[1][1][1, 2] * (θ[1][1, 1] * λ[1] + θ[1][2, 1] * λ[2]) +
-        X[1][1][2, 2] * (θ[1][1, 2] * λ[1] + θ[1][2, 2] * λ[2]) +
-        X[1][2][1, 2] *
-            (θ[2][1, 1] * λ[3] + θ[2][2, 1] * λ[4] + θ[2][3, 1] * λ[5]) +
-        X[1][2][2, 2] *
-            (θ[2][1, 2] * λ[3] + θ[2][2, 2] * λ[4] + θ[2][3, 2] * λ[5]) -
-        sum(X[1][1][:, 2]) / ζ[1] *
-            (exp(λ[1] + 0.5ν[1]) + exp(λ[2] + 0.5ν[2])) -
-        sum(X[1][2][:, 2]) / ζ[2] *
-            (exp(λ[3] + 0.5ν[3]) + exp(λ[4] + 0.5ν[4]) + exp(λ[5] + 0.5ν[5]))
-    )
-    ∇λ = Array(Float64, sum(K))
-    sumθ = vcat([vec(sum(θ[m] .* X[1][m][:, 2]', 2)) for m in 1:model.M]...)
-    Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
-    objective = MultiModalMuSig.λ_objective(λ, ∇λ, ν, Ndivζ, sumθ, μ, invΣ)
-    @test objective ≈ L
-
-    grad = -invΣ * diff
-    grad[1] += (
-        X[1][1][1, 2] * θ[1][1, 1] + X[1][1][2, 2] * θ[1][1, 2]
-        - sum(X[1][1][:, 2]) / ζ[1] * exp(λ[1] + 0.5ν[1])
-    )
-    grad[2] += (
-        X[1][1][1, 2] * θ[1][2, 1] + X[1][1][2, 2] * θ[1][2, 2]
-        - sum(X[1][1][:, 2]) / ζ[1] * exp(λ[2] + 0.5ν[2])
-    )
-    grad[3] += (
-        X[1][2][1, 2] * θ[2][1, 1] + X[1][2][2, 2] * θ[2][1, 2]
-        - sum(X[1][2][:, 2]) / ζ[2] * exp(λ[3] + 0.5ν[3])
-    )
-    grad[4] += (
-        X[1][2][1, 2] * θ[2][2, 1] + X[1][2][2, 2] * θ[2][2, 2]
-        - sum(X[1][2][:, 2]) / ζ[2] * exp(λ[4] + 0.5ν[4])
-    )
-    grad[5] += (
-        X[1][2][1, 2] * θ[2][3, 1] + X[1][2][2, 2] * θ[2][3, 2]
-        - sum(X[1][2][:, 2]) / ζ[2] * exp(λ[5] + 0.5ν[5])
-    )
-    @test ∇λ ≈ grad
-
-    model.μ = μ
-    model.λ[1] = λ
-    model.ν[1] = ν
-    model.ζ[1] = ζ
-    model.θ[1] = θ
     MultiModalMuSig.update_λ!(model, 1)
-    @test (model.λ[1] .> -20.0) | (model.λ[1] .< 20.0) == fill(true, sum(K))
+    @test model.λ[1] ≉ λ
 end
 
 @testset "ν_objective" begin
@@ -318,6 +264,30 @@ end
     MultiModalMuSig.update_Elnϕ!(model)
 
     @test model.Elnϕ[1][1][1][1] ≈ digamma(1) - digamma(3)
+end
+
+# TODO
+@testset "update_α!" begin
+    model = MultiModalMuSig.IMMCTM(K, α, features, X)
+
+    sum_Elnϕ = sum(model.Elnϕ[1][1][1]) + sum(model.Elnϕ[1][2][1])
+    L = K[1] * (lgamma(2α[1]) - 2lgamma(α[1])) + α[1] * sum_Elnϕ
+    grad = 2K[1] * (digamma(2α[1]) - digamma(α[1])) + sum_Elnϕ
+
+    ∇α = Array{Float64}(1)
+    @test MultiModalMuSig.α_objective(model.α[1][1:1], ∇α, sum_Elnϕ, K[1], 2) ≈ L
+    @test ∇α[1] ≈ grad
+
+    sum_Elnϕ = sum(model.Elnϕ[2][1][2]) + sum(model.Elnϕ[2][2][2])
+    L_before = K[2] * (lgamma(2α[2]) - 2lgamma(α[2])) + α[2] * sum_Elnϕ
+    MultiModalMuSig.update_α!(model)
+    L_after = (
+        K[2] * (lgamma(2model.α[2][2]) - 2lgamma(model.α[2][2])) +
+        model.α[2][2] * sum_Elnϕ
+    )
+    @test model.α[1] ≉ fill(α[1], 2)
+    @test model.α[2] ≉ fill(α[2], 2)
+    @test L_after > L_before
 end
 
 @testset "calculate_ElnPϕ" begin

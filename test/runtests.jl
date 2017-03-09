@@ -1,6 +1,6 @@
 using Base.Test
 
-tests = ["immctm", "mmctm"]
+tests = ["immctm", "mmctm", "common"]
 
 for test in tests
     include(test * ".jl")

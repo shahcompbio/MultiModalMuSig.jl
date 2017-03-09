@@ -10,7 +10,7 @@ type IMMCTM
     μ::Vector{Float64}
     Σ::Matrix{Float64}
     invΣ::Matrix{Float64}
-    α::Vector{Float64}
+    α::Vector{Vector{Float64}}
 
     ζ::Vector{Vector{Float64}}
     θ::Vector{Vector{Matrix{Float64}}}
@@ -26,14 +26,14 @@ type IMMCTM
     elbo::Float64
     ll::Vector{Float64}
 
-    function IMMCTM(k::Vector{Int}, α::Vector{Float64},
+    function IMMCTM(k::Vector{Int}, α::Vector{Vector{Float64}},
                     features::Vector{Matrix{Int}},
                     X::Vector{Vector{Matrix{Int}}})
         model = new()
 
-        model.K = k
-        model.α = α
-        model.features = features
+        model.K = copy(k)
+        model.α = deepcopy(α)
+        model.features = deepcopy(features)
         model.X = X
 
         model.D = length(X)
@@ -76,6 +76,15 @@ type IMMCTM
 
         return model
     end
+end
+
+function IMMCTM(k::Vector{Int}, α::Vector{Float64},
+                features::Vector{Matrix{Int}},
+                X::Vector{Vector{Matrix{Int}}})
+    M = length(features)
+    I = [size(features[m])[2] for m in 1:M]
+    full_α = Vector{Float64}[fill(α[m], I[m]) for m in 1:M]
+    return IMMCTM(k, full_α, features, X)
 end
 
 function calculate_sumθ(model::IMMCTM, d::Int)
@@ -192,7 +201,7 @@ function update_γ!(model::IMMCTM)
         for k in 1:model.K[m]
             for i in 1:model.I[m]
                 for j in 1:model.J[m][i]
-                    model.γ[m][k][i][j] = model.α[m] 
+                    model.γ[m][k][i][j] = model.α[m][i]
                 end
             end
         end
@@ -213,15 +222,37 @@ function update_γ!(model::IMMCTM)
     update_Elnϕ!(model)
 end
 
+function update_α!(model::IMMCTM)
+    opt = Opt(:LD_LBFGS, 1)
+    lower_bounds!(opt, 1e-7)
+    xtol_rel!(opt, 1e-5)
+    xtol_abs!(opt, 1e-5)
+
+    for m in 1:model.M
+        for i in 1:model.I[m]
+            sum_Elnϕ = sum(sum(model.Elnϕ[m][k][i] for k in 1:model.K[m]))
+
+            max_objective!(
+                opt,
+                (α, ∇α) -> α_objective(α, ∇α, sum_Elnϕ, model.K[m], model.J[m][i])
+            )
+
+            (optobj, optα, ret) = optimize(opt, model.α[m][i:i])
+            model.α[m][i] = optα[1]
+        end
+    end
+end
+
+
 function calculate_ElnPϕ(model::IMMCTM)
     lnp = 0.0
 
     for m in 1:model.M
         for k in 1:model.K[m]
             for i in 1:model.I[m]
-                lnp -= logmvbeta(fill(model.α[m], model.J[m][i]))
+                lnp -= logmvbeta(fill(model.α[m][i], model.J[m][i]))
                 for j in 1:model.J[m][i]
-                    lnp += (model.α[m] - 1) * model.Elnϕ[m][k][i][j]
+                    lnp += (model.α[m][i] - 1) * model.Elnϕ[m][k][i][j]
                 end
             end
         end
@@ -403,7 +434,7 @@ function fitdoc!(model::IMMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::IMMCTM; maxiter=100, tol=1e-4, verbose=true)
+function fit!(model::IMMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
@@ -414,6 +445,9 @@ function fit!(model::IMMCTM; maxiter=100, tol=1e-4, verbose=true)
         update_μ!(model)
         update_Σ!(model)
         update_γ!(model)
+        if autoα
+            update_α!(model)
+        end
 
         push!(ll, calculate_loglikelihoods(model.X, model))
         if verbose
