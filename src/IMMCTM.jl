@@ -223,7 +223,7 @@ function update_γ!(model::IMMCTM)
 end
 
 function update_α!(model::IMMCTM)
-    opt = Opt(:LD_LBFGS, 1)
+    opt = Opt(:LD_MMA, 1)
     lower_bounds!(opt, 1e-7)
     xtol_rel!(opt, 1e-5)
     xtol_abs!(opt, 1e-5)
