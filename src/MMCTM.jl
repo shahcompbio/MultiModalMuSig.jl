@@ -42,25 +42,24 @@ type MMCTM
         model.Σ = eye(MK)
         model.invΣ = eye(MK)
 
+        model.λ = [zeros(MK) for d in 1:model.D]
+        model.ν = [ones(MK) for d in 1:model.D]
+        model.ζ = [Array(Float64, model.M) for d in 1:model.D]
+        for d in 1:model.D update_ζ!(model, d) end
+
         model.θ = [
             [
-               rand(Dirichlet(model.K[m], 1.0 / model.K[m]), size(X[d][m])[1])
+                fill(1.0 / model.K[m], model.K[m], size(X[d][m], 1))
                 for m in 1:model.M
             ] for d in 1:model.D
         ]
 
         model.γ = [
-            [Array(Float64, model.V[m]) for k in 1:model.K[m]]
+            [rand(1:10, model.V[m]) for k in 1:model.K[m]]
             for m in 1:model.M
         ]
         model.Elnϕ = deepcopy(model.γ)
-        update_γ!(model)
-
-        model.λ = [zeros(MK) for d in 1:model.D]
-        model.ν = [ones(MK) for d in 1:model.D]
-
-        model.ζ = [Array(Float64, model.M) for d in 1:model.D]
-        for d in 1:model.D update_ζ!(model, d) end
+        update_Elnϕ!(model)
 
         model.converged = false
 
@@ -119,7 +118,7 @@ function update_λ!(model::MMCTM, d::Int)
     model.λ[d] .= optλ
 end
 
-function update_ν!(model::MMCTM, d::Int)
+function update_ν!(model::MMCTM, d::Int, t::Float64)
     opt = Opt(:LD_MMA, sum(model.K))
     lower_bounds!(opt, 1e-7)
     xtol_rel!(opt, 1e-4)
@@ -129,7 +128,7 @@ function update_ν!(model::MMCTM, d::Int)
 
     max_objective!(
         opt,
-        (ν, ∇ν) -> ν_objective(ν, ∇ν, model.λ[d], Ndivζ, model.μ, model.invΣ)
+        (ν, ∇ν) -> ν_objective(ν, ∇ν, model.λ[d], Ndivζ, model.μ, model.invΣ, t)
     )
     (optobj, optν, ret) = optimize(opt, model.ν[d])
     model.ν[d] .= optν
@@ -146,7 +145,7 @@ function update_ζ!(model::MMCTM, d::Int)
     end
 end
 
-function update_θ!(model::MMCTM, d::Int)
+function update_θ!(model::MMCTM, d::Int, t::Float64)
     offset = 0
     for m in 1:model.M
         for w in 1:size(model.X[d][m], 1)
@@ -154,7 +153,7 @@ function update_θ!(model::MMCTM, d::Int)
 
             for k in 1:model.K[m]
                 model.θ[d][m][k, w] = exp(
-                    model.λ[d][offset + k] + model.Elnϕ[m][k][v]
+                    (model.λ[d][offset + k] + model.Elnϕ[m][k][v]) / t
                 )
             end
         end
@@ -187,10 +186,10 @@ function update_Elnϕ!(model::MMCTM)
     end
 end
 
-function update_γ!(model::MMCTM)
+function update_γ!(model::MMCTM, t::Float64)
     for m in 1:model.M
         for k in 1:model.K[m]
-            model.γ[m][k] .= model.α[m] 
+            model.γ[m][k] .= model.α[m] + t - 1
         end
     end
     for d in 1:model.D
@@ -202,6 +201,11 @@ function update_γ!(model::MMCTM)
                     model.γ[m][k][v] += Nθ[k, w]
                 end
             end
+        end
+    end
+    for m in 1:model.M
+        for k in 1:model.K[m]
+            model.γ[m][k] ./= t
         end
     end
     update_Elnϕ!(model)
@@ -325,15 +329,15 @@ function calculate_ElnQZ(model::MMCTM)
     return lnq
 end
 
-function calculate_elbo(model::MMCTM)
+function calculate_elbo(model::MMCTM, t::Float64)
     elbo = 0.0
     elbo += calculate_ElnPϕ(model)
     elbo += calculate_ElnPη(model)
     elbo += calculate_ElnPZ(model)
     elbo += calculate_ElnPX(model)
-    elbo -= calculate_ElnQϕ(model)
-    elbo -= calculate_ElnQη(model)
-    elbo -= calculate_ElnQZ(model)
+    elbo -= t * calculate_ElnQϕ(model)
+    elbo -= t * calculate_ElnQη(model)
+    elbo -= t * calculate_ElnQZ(model)
     return elbo
 end
 
@@ -392,40 +396,47 @@ function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
     return ll
 end
 
-function fitdoc!(model::MMCTM, d::Int)
+function fitdoc!(model::MMCTM, d::Int, t::Float64=1.0)
     update_ζ!(model, d)
-    update_θ!(model, d)
-    update_ν!(model, d)
+    update_θ!(model, d, t)
+    update_ν!(model, d, t)
     update_λ!(model, d)
 end
 
-function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
+function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, t=1.0,
+              cooling_rate=0.95, autoα=false)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
+        if t < 1.0
+            t = 1.0
+        end
+
         for d in 1:model.D
-            fitdoc!(model, d)
+            fitdoc!(model, d, t)
         end
 
         update_μ!(model)
         update_Σ!(model)
-        update_γ!(model)
+        update_γ!(model, t)
         if autoα
             update_α!(model)
         end
 
         push!(ll, calculate_loglikelihoods(model.X, model))
 
-        if verbose
+        if verbose 
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll, tol=tol)
+        if t == 1.0 && iter > 1 && check_convergence(ll, tol=tol)
             model.converged = true
             break
         end
+        t *= cooling_rate
     end
-    model.elbo = calculate_elbo(model)
+
+    model.elbo = calculate_elbo(model, 1.0)
     model.ll = ll[end]
 
     return ll
