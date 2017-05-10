@@ -207,8 +207,9 @@ end
 
 function laplace_update_λ!(model::MMCTM, d::Int)
     opt = Opt(:LD_MMA, sum(model.K))
-    #xtol_rel!(opt, 1e-4)
+    xtol_rel!(opt, 1e-4)
     xtol_abs!(opt, 1e-4)
+    maxeval!(opt, 100)
 
     Etz = vcat([
         vec(sum(model.X[d][m][:, 2]' .* model.θ[d][m], 2))
@@ -230,7 +231,7 @@ function laplace_update_λ!(model::MMCTM, d::Int)
     (optobj, optλ, ret) = optimize(opt, model.λ[d])
     model.λ[d] .= optλ
     model.laplaceΣ[d] .= -inv(calculate_∇2f(
-        optλ, Etz, sum_Etz, model.μ, model.invΣ, model.K
+        optλ, sum_Etz, model.invΣ, model.K
     ))
 end
 
@@ -436,12 +437,22 @@ function fitdoc!(model::MMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::MMCTM; maxiter=100, verbose=true)
+function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
         for d in 1:model.D
-            fitdoc!(model, d)
+            model.λ[d] .= zeros(sum(model.K))
+            old_props = softmax(model.λ[d])
+            i = 1
+            for i in 1:200
+                fitdoc!(model, d)
+                new_props = softmax(model.λ[d])
+                if mean(abs(new_props .- old_props)) < 0.0001
+                    break
+                end
+                old_props = new_props
+            end
         end
 
         update_μ!(model)
@@ -454,7 +465,7 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll)
+        if length(ll) > 10 && check_convergence(ll, tol=tol)
             model.converged = true
             break
         end
@@ -465,13 +476,23 @@ function fit!(model::MMCTM; maxiter=100, verbose=true)
     return ll
 end
 
-function laplace_fit!(model::MMCTM; maxiter=100, verbose=true)
+function fit_laplace!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
         for d in 1:model.D
-            laplace_update_θ!(model, d)
-            laplace_update_λ!(model, d)
+            model.λ[d] .= zeros(sum(model.K))
+            old_props = softmax(model.λ[d])
+            i = 1
+            for i in 1:1
+                laplace_update_θ!(model, d)
+                laplace_update_λ!(model, d)
+                new_props = softmax(model.λ[d])
+                if mean(abs(new_props .- old_props)) < 0.0001
+                    break
+                end
+                old_props = new_props
+            end
         end
 
         update_μ!(model)
@@ -484,7 +505,7 @@ function laplace_fit!(model::MMCTM; maxiter=100, verbose=true)
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
         end
 
-        if length(ll) > 10 && check_convergence(ll)
+        if length(ll) > 10 && check_convergence(ll, tol=tol)
             model.converged = true
             break
         end

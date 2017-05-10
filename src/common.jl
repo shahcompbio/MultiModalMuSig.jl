@@ -61,10 +61,8 @@ function calculate_∇f(λ::Vector{Float64}, Etz::Vector{Float64},
     return Etz .- props .* sum_Etz .- invΣ * diff
 end
 
-function calculate_∇2f(λ::Vector{Float64}, Etz::Vector{Float64},
-        sum_Etz::Vector{Float64}, μ::Vector{Float64}, invΣ::Matrix{Float64},
-        Ks::Vector{Int})
-    diff = λ .- μ
+function calculate_∇2f(λ::Vector{Float64}, sum_Etz::Vector{Float64},
+        invΣ::Matrix{Float64}, Ks::Vector{Int})
     props = exp(calculate_logprops(λ, Ks))
     return (-diagm(props) .+ props * props') .* sum_Etz .- invΣ
 end

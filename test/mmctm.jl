@@ -1,4 +1,5 @@
 using MultiModalMuSig
+using StatsFuns
 using Base.Test
 
 K = [2, 3]
@@ -314,6 +315,34 @@ end
     @test model.γ[2][1] ≈ γ1
     @test model.γ[2][2] ≈ γ2
     @test model.γ[2][3] ≈ γ3
+end
+
+@testset "laplace_update_λ!" begin
+    λ = Float64[1, 2, 3, 4, 1]
+    logprops = vcat(
+        λ[1:2] .- logsumexp(λ[1:2]),
+        λ[3:end] .- logsumexp(λ[3:end])
+    )
+
+    @test MultiModalMuSig.calculate_logprops(λ, K) ≈ logprops
+    @test sum(exp(logprops[1:2])) ≈ 1.0
+    @test sum(exp(logprops[3:end])) ≈ 1.0
+
+    Etz = [10.0, 12.0, 9.0, 13.0, 4.0]
+    μ = Float64[1, 1, 2, 2, 1]
+    invΣ = eye(sum(K))
+
+    diff = λ .- μ
+    f = (logprops' * Etz - 0.5 * diff' * invΣ * diff)[1]
+    @test MultiModalMuSig.calculate_f(λ, Etz, μ, invΣ, K) ≈ f
+
+    sum_Etz = vcat(fill(sum(Etz[1:2]), K[1]), fill(sum(Etz[3:end]), K[2]))
+    props = exp(logprops)
+    ∇f = Etz .- props .* sum_Etz .- invΣ * diff
+    @test MultiModalMuSig.calculate_∇f(λ, Etz, sum_Etz, μ, invΣ, K) ≈ ∇f
+
+    ∇2f = (-diagm(props) .+ props * props') .* sum_Etz .- invΣ
+    @test MultiModalMuSig.calculate_∇2f(λ, sum_Etz, invΣ, K) ≈ ∇2f
 end
 
 @testset "update_Elnϕ!" begin
