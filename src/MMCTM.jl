@@ -523,6 +523,7 @@ function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
     obsmodel.Σ .= model.Σ[obsMK, obsMK]
     obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
     obsmodel.γ = deepcopy(model.γ[obsM])
+    obsmodel.Elnϕ = deepcopy(model.Elnϕ[obsM])
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
