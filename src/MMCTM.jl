@@ -38,23 +38,23 @@ type MMCTM
 
         MK = sum(model.K)
 
-        model.μ = zeros(MK)
-        model.Σ = eye(MK)
-        model.invΣ = eye(MK)
+        model.μ = zeros(MK - model.M)
+        model.Σ = eye(MK - model.M)
+        model.invΣ = eye(MK - model.M)
 
         model.θ = [
             [
-               rand(Dirichlet(model.K[m], 1.0 / model.K[m]), size(X[d][m])[1])
-                for m in 1:model.M
+               fill(1.0 / model.K[m], model.K[m], size(model.X[d][m])[1])
+               for m in 1:model.M
             ] for d in 1:model.D
         ]
 
         model.γ = [
-            [Array(Float64, model.V[m]) for k in 1:model.K[m]]
+            [rand(1:100, model.V[m]) for k in 1:model.K[m]]
             for m in 1:model.M
         ]
         model.Elnϕ = deepcopy(model.γ)
-        update_γ!(model)
+        update_Elnϕ!(model)
 
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
@@ -87,7 +87,7 @@ end
 function calculate_sumθ(model::MMCTM, d::Int)
     return vcat(
         [
-            vec(sum(model.θ[d][m] .* model.X[d][m][:, 2]', 2))
+            vec(sum(model.θ[d][m][1:end-1, :] .* model.X[d][m][:, 2]', 2))
             for m in 1:model.M
         ]...
     )
@@ -96,43 +96,73 @@ end
 function calculate_Ndivζ(model::MMCTM, d::Int)
     return vcat(
         [
-            fill(model.N[d][m] / model.ζ[d][m], model.K[m]) for m in 1:model.M
+            fill(model.N[d][m] / model.ζ[d][m], model.K[m] - 1) for m in 1:model.M
         ]...
     )
 end
 
 function update_λ!(model::MMCTM, d::Int)
-    opt = Opt(:LD_MMA, sum(model.K))
-    xtol_rel!(opt, 1e-4)
+    opt = Opt(:LD_MMA, sum(model.K) - model.M)
+    ftol_rel!(opt, 1e-4)
     #xtol_abs!(opt, 1e-4)
 
     Ndivζ = calculate_Ndivζ(model, d)
     sumθ = calculate_sumθ(model, d)
 
+    ν = Array(Float64, sum(model.K) - model.M)
+    λ = Array(Float64, sum(model.K) - model.M)
+    start = 1
+    for m in 1:model.M
+        stop = start + model.K[m] - 2
+        ν[(start + 1 - m):(stop + 1 - m)] .= model.ν[d][start:stop]
+        λ[(start + 1 - m):(stop + 1 - m)] .= model.λ[d][start:stop]
+        start += model.K[m]
+    end
+
     max_objective!(
         opt,
         (λ, ∇λ) -> λ_objective(
-            λ, ∇λ, model.ν[d], Ndivζ, sumθ, model.μ, model.invΣ
+            λ, ∇λ, ν, Ndivζ, sumθ, model.μ, model.invΣ
         )
     )
-    (optobj, optλ, ret) = optimize(opt, model.λ[d])
-    model.λ[d] .= optλ
+    (optobj, optλ, ret) = optimize(opt, λ)
+    start = 1
+    for m in 1:model.M
+        stop = start + model.K[m] - 2
+        model.λ[d][start:stop] .= optλ[(start + 1 - m):(stop + 1 - m)]
+        start += model.K[m]
+    end
 end
 
 function update_ν!(model::MMCTM, d::Int)
-    opt = Opt(:LD_MMA, sum(model.K))
+    opt = Opt(:LD_MMA, sum(model.K) - model.M)
     lower_bounds!(opt, 1e-7)
-    xtol_rel!(opt, 1e-4)
-    xtol_abs!(opt, 1e-4)
+    ftol_rel!(opt, 1e-4)
+    ftol_abs!(opt, 1e-4)
 
     Ndivζ = calculate_Ndivζ(model, d)
 
+    ν = Array(Float64, sum(model.K) - model.M)
+    λ = Array(Float64, sum(model.K) - model.M)
+    start = 1
+    for m in 1:model.M
+        stop = start + model.K[m] - 2
+        ν[(start + 1 - m):(stop + 1 - m)] .= model.ν[d][start:stop]
+        λ[(start + 1 - m):(stop + 1 - m)] .= model.λ[d][start:stop]
+        start += model.K[m]
+    end
+
     max_objective!(
         opt,
-        (ν, ∇ν) -> ν_objective(ν, ∇ν, model.λ[d], Ndivζ, model.μ, model.invΣ)
+        (ν, ∇ν) -> ν_objective(ν, ∇ν, λ, Ndivζ, model.μ, model.invΣ)
     )
-    (optobj, optν, ret) = optimize(opt, model.ν[d])
-    model.ν[d] .= optν
+    (optobj, optν, ret) = optimize(opt, ν)
+    start = 1
+    for m in 1:model.M
+        stop = start + model.K[m] - 2
+        model.ν[d][start:stop] .= optν[(start + 1 - m):(stop + 1 - m)]
+        start += model.K[m]
+    end
 end
 
 function update_ζ!(model::MMCTM, d::Int)
@@ -164,15 +194,43 @@ function update_θ!(model::MMCTM, d::Int)
 end
 
 function update_μ!(model::MMCTM)
-    model.μ .= mean(model.λ)
+    model.μ .= 0
+
+    for d in 1:model.D
+        start = 1
+        for m in 1:model.M
+            stop = start + model.K[m] - 2
+            model.μ[(start + 1 - m):(stop + 1 - m)] .+= model.λ[d][start:stop]
+            start += model.K[m]
+        end
+    end
+    model.μ ./= model.D
 end
 
 function update_Σ!(model::MMCTM)
-    model.Σ .= sum(diagm.(model.ν))
+    model.Σ .= 0
+
+    λ = Array(Float64, sum(model.K) - model.M)
+    ν = Array(Float64, sum(model.K) - model.M)
     for d in 1:model.D
-        diff = model.λ[d] .- model.μ
-        model.Σ .+= diff * diff'
+        start = 1
+        for m in 1:model.M
+            stop = start + model.K[m] - 2
+            λ[(start + 1 - m):(stop + 1 - m)] .= model.λ[d][start:stop]
+            ν[(start + 1 - m):(stop + 1 - m)] .= model.ν[d][start:stop]
+            start += model.K[m]
+        end
+
+        diff = λ .- model.μ
+        model.Σ .+= diagm(ν) .+ diff * diff'
     end
+
+    #model.Σ .= sum(diagm.(model.ν))
+    #for d in 1:model.D
+        #model.Σ
+        #diff = model.λ[d] .- model.μ
+        #model.Σ .+= diff * diff'
+    #end
     model.Σ ./= model.D
     model.invΣ .= inv(model.Σ)
 end
@@ -394,9 +452,11 @@ end
 
 function fitdoc!(model::MMCTM, d::Int)
     update_ζ!(model, d)
-    update_θ!(model, d)
-    update_ν!(model, d)
     update_λ!(model, d)
+    update_ζ!(model, d)
+    update_ν!(model, d)
+    update_ζ!(model, d)
+    update_θ!(model, d)
 end
 
 function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
@@ -425,7 +485,7 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
             break
         end
     end
-    model.elbo = calculate_elbo(model)
+    #model.elbo = calculate_elbo(model)
     model.ll = ll[end]
 
     return ll
