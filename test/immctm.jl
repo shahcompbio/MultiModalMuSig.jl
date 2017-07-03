@@ -71,6 +71,7 @@ X = Vector{Matrix{Int}}[
     @test length(model.γ[1]) == 2
     @test length(model.γ[1][1]) == 2
     @test length(model.γ[1][1][1]) == 2
+    @test all(model.γ[1][1][1] .> 0) == true
 end
 
 @testset "calculate_Ndivζ" begin

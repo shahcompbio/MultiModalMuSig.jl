@@ -44,17 +44,17 @@ type MMCTM
 
         model.θ = [
             [
-               rand(Dirichlet(model.K[m], 1.0 / model.K[m]), size(X[d][m])[1])
+                fill(1.0 / model.K[m], model.K[m], size(model.X[d][m])[1])
                 for m in 1:model.M
             ] for d in 1:model.D
         ]
 
         model.γ = [
-            [Array(Float64, model.V[m]) for k in 1:model.K[m]]
+            [rand(1:100, model.V[m]) for k in 1:model.K[m]]
             for m in 1:model.M
         ]
         model.Elnϕ = deepcopy(model.γ)
-        update_γ!(model)
+        update_Elnϕ!(model)
 
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
