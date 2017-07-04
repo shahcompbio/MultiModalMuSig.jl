@@ -50,3 +50,7 @@ function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
     return reldiff < tol
 end
 
+function check_convergence(metric::Vector{Float64}; tol=1e-4)
+    reldiff = maximum(abs(metric[end - 1] - metric[end]) / abs(metric[end]))
+    return reldiff < tol
+end
