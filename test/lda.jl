@@ -101,3 +101,18 @@ end
     @test model.λ ≈ λ
     @test model.Elnβ ≈ Elnβ
 end
+
+@testset "calculate_elbo" begin
+    model = MultiModalMuSig.LDA(K, α, η, X)
+
+    @test typeof(MultiModalMuSig.calculate_ElnPβ(model)) == Float64
+    @test typeof(MultiModalMuSig.calculate_ElnPθ(model)) == Float64
+    @test typeof(MultiModalMuSig.calculate_ElnPZ(model)) == Float64
+    @test typeof(MultiModalMuSig.calculate_ElnPX(model)) == Float64
+
+    @test typeof(MultiModalMuSig.calculate_ElnQβ(model)) == Float64
+    @test typeof(MultiModalMuSig.calculate_ElnQθ(model)) == Float64
+    @test typeof(MultiModalMuSig.calculate_ElnQZ(model)) == Float64
+
+    @test MultiModalMuSig.calculate_elbo(model) < 0.0
+end

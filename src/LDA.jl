@@ -101,50 +101,48 @@ end
 
 function calculate_ElnPβ(model::LDA)
     lnp = model.K * (lgamma(model.V * model.η) - model.V * lgamma(model.η))
-    lnp += (model.η - 1) * sum(digamma(model.λ) .- digamma(sum(model.λ, 1)))
+    lnp += (model.η - 1) * sum(model.Elnβ)
     return lnp
 end
 
 function calculate_ElnPθ(model::LDA)
     lnp = model.D * (lgamma(model.K * model.α) - model.K * lgamma(model.α))
-    lnp += (model.α - 1) * sum(digamma(model.γ) .- digamma(sum(model.γ, 1)))
+    lnp += (model.α - 1) * sum(model.Elnβ)
     return lnp
 end
 
 function calculate_ElnPZ(model::LDA)
     lnp = 0.0
-    Elnθ = digamma(model.γ) .- digamma(sum(model.γ, 1))
     for d in 1:model.D
-        lnp += sum(model.ϕ[d] .* Elnθ[:, d] .* model.X[d][:, 2]')
+        lnp += sum(model.ϕ[d] .* model.Elnθ[:, d] .* model.X[d][:, 2]')
     end
     return lnp
 end
 
 function calculate_ElnPX(model::LDA)
     lnp = 0.0
-    Elnβ = digamma(model.λ) .- digamma(sum(model.λ, 1))
     for d in 1:model.D
-        lnp += sum(model.ϕ[d]' .* Elnβ[model.X[d][:, 1], :] .* model.X[d][:, 2])
+        lnp += sum(model.ϕ[d]' .* model.Elnβ[model.X[d][:, 1], :] .* model.X[d][:, 2])
     end
     return lnp
 end
 
 function calculate_ElnQβ(model::LDA)
     lnq = sum(lgamma(model.λ)) - sum(lgamma(sum(model.λ, 1)))
-    lnq -= sum((model.λ .- 1) .* (digamma(model.λ) .- digamma(sum(model.λ, 1))))
+    lnq -= sum((model.λ .- 1) .* model.Elnβ)
     return lnq
 end
 
 function calculate_ElnQθ(model::LDA)
     lnq = sum(lgamma(model.γ)) - sum(lgamma(sum(model.γ, 1)))
-    lnq -= sum((model.γ .- 1) .* (digamma(model.γ) .- digamma(sum(model.γ, 1))))
+    lnq -= sum((model.γ .- 1) .* model.Elnθ)
     return lnq
 end
 
 function calculate_ElnQZ(model::LDA)
     lnq = 0.0
     for d in 1:model.D
-        lnq += log(model.ϕ[d] .^ model.ϕ[d])
+        lnq += sum(log(model.ϕ[d] .^ model.ϕ[d]))
     end
     return lnq
 end
@@ -190,7 +188,6 @@ function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true, autoα=false)
         push!(ll, calculate_loglikelihood(model.X, model))
 
         if verbose
-            println("$iter\tELBO: ", calculate_elbo(model))
             println("$iter\tLog-likelihood: ", ll[end])
         end
 
@@ -199,7 +196,7 @@ function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true, autoα=false)
             break
         end
     end
-    #model.elbo = calculate_elbo(model)
+    model.elbo = calculate_elbo(model)
     model.ll = ll[end]
 
     return ll
@@ -228,6 +225,8 @@ function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::LDA;
             break
         end
     end
+    heldout_model.elbo = calculate_elbo(model)
+    heldout_model.ll = ll[end]
 
     return heldout_model
 end
