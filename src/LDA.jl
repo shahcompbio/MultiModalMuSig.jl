@@ -6,11 +6,11 @@ type LDA
 
     α::Float64              # topic hyperparameter
     λ::Matrix{Float64}      # topic variational parameters
-    Elnλ::Matrix{Float64}
+    Elnβ::Matrix{Float64}
     
     η::Float64                  # doc-topic hyperparameter
     γ::Matrix{Float64}          # doc-topic variational parameters
-    Elnγ::Matrix{Float64}
+    Elnθ::Matrix{Float64}
     ϕ::Vector{Matrix{Float64}}  # Z variational parameters
 
     X::Vector{Matrix{Int}}
@@ -31,13 +31,13 @@ type LDA
         model.N = [sum(X[d][:, 2]) for d in 1:model.D]
         model.V = V
 
-        model.λ = α .+ rand(model.V, model.K)
-        model.Elnλ = Array(Float64, model.V, model.K)
-        update_Elnλ!(model)
+        model.λ = rand(1:100, model.V, model.K)
+        model.Elnβ = Array{Float64}(model.V, model.K)
+        update_Elnβ!(model)
 
-        model.γ = 1.0 .+ fill(η, model.K, model.D)
-        model.Elnγ = Array(Float64, model.K, model.D)
-        update_Elnγ!(model)
+        model.γ = fill(1.0, model.K, model.D)
+        model.Elnθ = Array{Float64}(model.K, model.D)
+        update_Elnθ!(model)
 
         model.ϕ = [
             fill(1.0 / model.K, model.K, size(model.X[d], 1))
@@ -65,14 +65,14 @@ end
 function update_ϕ!(model::LDA)
     for d in 1:model.D
         model.ϕ[d] .= exp(
-            model.Elnγ[:, d] .+ model.Elnλ[model.X[d][:, 1], :]'
+            model.Elnθ[:, d] .+ model.Elnβ[model.X[d][:, 1], :]'
         )
         model.ϕ[d] ./= sum(model.ϕ[d], 1)
     end
 end
 
-function update_Elnγ!(model::LDA)
-    model.Elnγ .= digamma(model.γ) .- digamma(sum(model.γ, 1))
+function update_Elnθ!(model::LDA)
+    model.Elnθ .= digamma(model.γ) .- digamma(sum(model.γ, 1))
 end
 
 function update_γ!(model::LDA)
@@ -82,11 +82,11 @@ function update_γ!(model::LDA)
         model.γ[:, d] .+= model.ϕ[d] * model.X[d][:, 2]
     end
 
-    update_Elnγ!(model)
+    update_Elnθ!(model)
 end
 
-function update_Elnλ!(model::LDA)
-    model.Elnλ .= digamma(model.λ) .- digamma(sum(model.λ, 1))
+function update_Elnβ!(model::LDA)
+    model.Elnβ .= digamma(model.λ) .- digamma(sum(model.λ, 1))
 end
 
 function update_λ!(model::LDA)
@@ -96,46 +96,67 @@ function update_λ!(model::LDA)
         model.λ[model.X[d][:, 1], :] .+= model.ϕ[d]' .* model.X[d][:, 2]
     end
 
-    update_Elnλ!(model)
+    update_Elnβ!(model)
 end
 
-function calculate_ElnPϕ(model::LDA)
-    lnp = 0.0
+function calculate_ElnPβ(model::LDA)
+    lnp = model.K * (lgamma(model.V * model.η) - model.V * lgamma(model.η))
+    lnp += (model.η - 1) * sum(digamma(model.λ) .- digamma(sum(model.λ, 1)))
+    return lnp
+end
 
+function calculate_ElnPθ(model::LDA)
+    lnp = model.D * (lgamma(model.K * model.α) - model.K * lgamma(model.α))
+    lnp += (model.α - 1) * sum(digamma(model.γ) .- digamma(sum(model.γ, 1)))
     return lnp
 end
 
 function calculate_ElnPZ(model::LDA)
     lnp = 0.0
-
+    Elnθ = digamma(model.γ) .- digamma(sum(model.γ, 1))
+    for d in 1:model.D
+        lnp += sum(model.ϕ[d] .* Elnθ[:, d] .* model.X[d][:, 2]')
+    end
     return lnp
 end
 
 function calculate_ElnPX(model::LDA)
     lnp = 0.0
-
+    Elnβ = digamma(model.λ) .- digamma(sum(model.λ, 1))
+    for d in 1:model.D
+        lnp += sum(model.ϕ[d]' .* Elnβ[model.X[d][:, 1], :] .* model.X[d][:, 2])
+    end
     return lnp
 end
 
-function calculate_ElnQϕ(model::LDA)
-    lnq = 0.0
+function calculate_ElnQβ(model::LDA)
+    lnq = sum(lgamma(model.λ)) - sum(lgamma(sum(model.λ, 1)))
+    lnq -= sum((model.λ .- 1) .* (digamma(model.λ) .- digamma(sum(model.λ, 1))))
+    return lnq
+end
 
+function calculate_ElnQθ(model::LDA)
+    lnq = sum(lgamma(model.γ)) - sum(lgamma(sum(model.γ, 1)))
+    lnq -= sum((model.γ .- 1) .* (digamma(model.γ) .- digamma(sum(model.γ, 1))))
     return lnq
 end
 
 function calculate_ElnQZ(model::LDA)
     lnq = 0.0
-
+    for d in 1:model.D
+        lnq += log(model.ϕ[d] .^ model.ϕ[d])
+    end
     return lnq
 end
 
-# TODO
 function calculate_elbo(model::LDA)
     elbo = 0.0
-    elbo += calculate_ElnPϕ(model)
+    elbo += calculate_ElnPβ(model)
+    elbo += calculate_ElnPθ(model)
     elbo += calculate_ElnPZ(model)
     elbo += calculate_ElnPX(model)
-    elbo -= calculate_ElnQϕ(model)
+    elbo -= calculate_ElnQβ(model)
+    elbo -= calculate_ElnQθ(model)
     elbo -= calculate_ElnQZ(model)
     return elbo
 end
@@ -169,6 +190,7 @@ function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true, autoα=false)
         push!(ll, calculate_loglikelihood(model.X, model))
 
         if verbose
+            println("$iter\tELBO: ", calculate_elbo(model))
             println("$iter\tLog-likelihood: ", ll[end])
         end
 
@@ -188,7 +210,7 @@ function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::LDA;
 
     heldout_model = LDA(model.K, model.α, model.η, Xheldout)
     heldout_model.λ = deepcopy(model.λ)
-    heldout_model.Elnλ = deepcopy(model.Elnλ)
+    heldout_model.Elnβ = deepcopy(model.Elnβ)
 
     ll = Float64[]
     for iter in 1:maxiter
