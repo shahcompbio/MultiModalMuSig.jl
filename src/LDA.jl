@@ -64,7 +64,7 @@ end
 
 function update_ϕ!(model::LDA)
     for d in 1:model.D
-        model.ϕ[d] .= exp(
+        model.ϕ[d] .= exp.(
             model.Elnθ[:, d] .+ model.Elnβ[model.X[d][:, 1], :]'
         )
         model.ϕ[d] ./= sum(model.ϕ[d], 1)
@@ -72,7 +72,7 @@ function update_ϕ!(model::LDA)
 end
 
 function update_Elnθ!(model::LDA)
-    model.Elnθ .= digamma(model.γ) .- digamma(sum(model.γ, 1))
+    model.Elnθ .= digamma.(model.γ) .- digamma.(sum(model.γ, 1))
 end
 
 function update_γ!(model::LDA)
@@ -86,7 +86,7 @@ function update_γ!(model::LDA)
 end
 
 function update_Elnβ!(model::LDA)
-    model.Elnβ .= digamma(model.λ) .- digamma(sum(model.λ, 1))
+    model.Elnβ .= digamma.(model.λ) .- digamma.(sum(model.λ, 1))
 end
 
 function update_λ!(model::LDA)
@@ -128,13 +128,13 @@ function calculate_ElnPX(model::LDA)
 end
 
 function calculate_ElnQβ(model::LDA)
-    lnq = sum(lgamma(model.λ)) - sum(lgamma(sum(model.λ, 1)))
+    lnq = sum(lgamma.(model.λ)) - sum(lgamma.(sum(model.λ, 1)))
     lnq -= sum((model.λ .- 1) .* model.Elnβ)
     return lnq
 end
 
 function calculate_ElnQθ(model::LDA)
-    lnq = sum(lgamma(model.γ)) - sum(lgamma(sum(model.γ, 1)))
+    lnq = sum(lgamma.(model.γ)) - sum(lgamma.(sum(model.γ, 1)))
     lnq -= sum((model.γ .- 1) .* model.Elnθ)
     return lnq
 end
@@ -142,7 +142,7 @@ end
 function calculate_ElnQZ(model::LDA)
     lnq = 0.0
     for d in 1:model.D
-        lnq += sum(log(model.ϕ[d] .^ model.ϕ[d]))
+        lnq += sum(log.(model.ϕ[d] .^ model.ϕ[d]))
     end
     return lnq
 end
