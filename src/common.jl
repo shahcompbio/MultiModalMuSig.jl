@@ -46,7 +46,7 @@ function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
 end
 
 function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
-    reldiff = maximum(abs(metric[end - 1] .- metric[end]) ./ abs(metric[end]))
+    reldiff = maximum(abs.(metric[end - 1] .- metric[end]) ./ abs.(metric[end]))
     return reldiff < tol
 end
 
