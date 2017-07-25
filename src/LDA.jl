@@ -107,7 +107,7 @@ end
 
 function calculate_ElnPθ(model::LDA)
     lnp = model.D * (lgamma(model.K * model.α) - model.K * lgamma(model.α))
-    lnp += (model.α - 1) * sum(model.Elnβ)
+    lnp += (model.α - 1) * sum(model.Elnθ)
     return lnp
 end
 
@@ -177,7 +177,7 @@ function calculate_loglikelihood(X::Vector{Matrix{Int}}, model::LDA)
     return ll / N
 end
 
-function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true, autoα=false)
+function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true)
     ll = Float64[]
 
     for iter in 1:maxiter
@@ -211,8 +211,8 @@ function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::LDA;
 
     ll = Float64[]
     for iter in 1:maxiter
-        update_γ!(model)
-        update_ϕ!(model)
+        update_γ!(heldout_model)
+        update_ϕ!(heldout_model)
 
         push!(ll, calculate_loglikelihood(Xheldout, heldout_model))
 
@@ -225,7 +225,7 @@ function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::LDA;
             break
         end
     end
-    heldout_model.elbo = calculate_elbo(model)
+    heldout_model.elbo = calculate_elbo(heldout_model)
     heldout_model.ll = ll[end]
 
     return heldout_model
