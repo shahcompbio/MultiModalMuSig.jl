@@ -249,7 +249,7 @@ end
 function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::ILDA;
         maxiter=100, verbose=false)
 
-    heldout_model = ILDA(model.K, model.α, model.η, Xheldout)
+    heldout_model = ILDA(model.K, model.α, model.η, model.features, Xheldout)
     heldout_model.λ = deepcopy(model.λ)
     heldout_model.Elnβ = deepcopy(model.Elnβ)
 
