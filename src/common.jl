@@ -13,7 +13,7 @@ function λ_objective(λ::Vector{Float64}, ∇λ::Vector{Float64},
         μ::Vector{Float64}, invΣ::Matrix{Float64})
 
     diff = λ .- μ
-    Eeη = exp(λ .+ 0.5ν)
+    Eeη = exp.(λ .+ 0.5ν)
 
     if length(∇λ) > 0
         ∇λ .= -invΣ * diff .+ sumθ .- Ndivζ .* Eeη
@@ -26,13 +26,13 @@ function ν_objective(ν::Vector{Float64}, ∇ν::Vector{Float64},
         λ::Vector{Float64}, Ndivζ::Vector{Float64}, μ::Vector{Float64},
         invΣ::Matrix{Float64})
 
-    Eeη = exp(λ .+ 0.5ν)
+    Eeη = exp.(λ .+ 0.5ν)
 
     if length(∇ν) > 0
         ∇ν .= -0.5diag(invΣ) .- (Ndivζ / 2) .* Eeη .+ (1 ./ (2ν))
     end
 
-    return -0.5 * trace(diagm(ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log(ν)) / 2
+    return -0.5 * trace(diagm(ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log.(ν)) / 2
 end
 
 function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
@@ -46,7 +46,11 @@ function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
 end
 
 function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
-    reldiff = maximum(abs(metric[end - 1] .- metric[end]) ./ abs(metric[end]))
+    reldiff = maximum(abs.(metric[end - 1] .- metric[end]) ./ abs.(metric[end]))
     return reldiff < tol
 end
 
+function check_convergence(metric::Vector{Float64}; tol=1e-4)
+    reldiff = maximum(abs(metric[end - 1] - metric[end]) / abs(metric[end]))
+    return reldiff < tol
+end

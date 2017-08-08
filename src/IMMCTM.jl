@@ -51,7 +51,7 @@ type IMMCTM
 
         model.θ = [
             [
-               rand(Dirichlet(model.K[m], 1.0 / model.K[m]), size(X[d][m])[1])
+                fill(1.0 / model.K[m], model.K[m], size(model.X[d][m])[1])
                 for m in 1:model.M
             ] for d in 1:model.D
         ]
@@ -59,17 +59,17 @@ type IMMCTM
         model.γ = [
             [
                 [
-                    Array(Float64, model.J[m][i]) for i in 1:model.I[m]
+                    rand(1:100, model.J[m][i]) for i in 1:model.I[m]
                 ] for k in 1:model.K[m]
             ] for m in 1:model.M
         ]
         model.Elnϕ = deepcopy(model.γ)
-        update_γ!(model)
+        update_Elnϕ!(model)
 
-        model.λ = [randn(MK) for d in 1:model.D]
+        model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
 
-        model.ζ = [Array(Float64, model.M) for d in 1:model.D]
+        model.ζ = [Array{Float64}(model.M) for d in 1:model.D]
         for d in 1:model.D update_ζ!(model, d) end
 
         model.converged = false
@@ -143,7 +143,7 @@ function update_ζ!(model::IMMCTM, d::Int)
     for m in 1:model.M
         stop = start + model.K[m] - 1
         model.ζ[d][m] = sum(
-            exp(model.λ[d][start:stop] .+ 0.5 * model.ν[d][start:stop])
+            exp.(model.λ[d][start:stop] .+ 0.5 * model.ν[d][start:stop])
         )
         start += model.K[m]
     end
@@ -189,7 +189,7 @@ function update_Elnϕ!(model::IMMCTM)
     for m in 1:model.M
         for k in 1:model.K[m]
             for i in 1:model.I[m]
-                model.Elnϕ[m][k][i] .= digamma(model.γ[m][k][i]) .-
+                model.Elnϕ[m][k][i] .= digamma.(model.γ[m][k][i]) .-
                     digamma(sum(model.γ[m][k][i]))
             end
         end
@@ -281,13 +281,13 @@ function calculate_ElnPZ(model::IMMCTM)
     lnp = 0.0
 
     for d in 1:model.D
-        Eeη = exp(model.λ[d] .+ 0.5model.ν[d])
+        Eeη = exp.(model.λ[d] .+ 0.5model.ν[d])
         sumθ = calculate_sumθ(model, d)
         Ndivζ = calculate_Ndivζ(model, d)
 
         lnp += sum(model.λ[d] .* sumθ)
         lnp -= sum(Ndivζ .* Eeη) - sum(model.N[d])
-        lnp -= sum(model.N[d] .* log(model.ζ[d]))
+        lnp -= sum(model.N[d] .* log.(model.ζ[d]))
     end
 
     return lnp
@@ -332,7 +332,7 @@ end
 function calculate_ElnQη(model::IMMCTM)
     lnq = 0.0
     for d in 1:model.D
-        lnq += -0.5 * (sum(log(model.ν[d])) + sum(model.K) * (log(2π) + 1))
+        lnq += -0.5 * (sum(log.(model.ν[d])) + sum(model.K) * (log(2π) + 1))
     end
     return lnq
 end
@@ -341,7 +341,7 @@ function calculate_ElnQZ(model::IMMCTM)
     lnq = 0.0
     for d in 1:model.D
         for m in 1:model.M
-            lnq += sum(model.X[d][m][:, 2]' .* log(model.θ[d][m] .^ model.θ[d][m]))
+            lnq += sum(model.X[d][m][:, 2]' .* log.(model.θ[d][m] .^ model.θ[d][m]))
         end
     end
     return lnq
@@ -362,7 +362,7 @@ end
 function calculate_docmodality_loglikelihood(X::Matrix{Int},
         η::Vector{Float64}, ϕ::Vector{Vector{Vector{Float64}}},
         features::Matrix{Int})
-    props = exp(η) ./ sum(exp(η))
+    props = exp.(η) ./ sum(exp.(η))
 
     K = length(η)
     I = size(features)[2]
@@ -407,7 +407,7 @@ end
 
 function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
         model::IMMCTM)
-    ll = Array(Float64, model.M)
+    ll = Array{Float64}(model.M)
 
     offset = 1
     for m in 1:model.M
@@ -472,7 +472,7 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
     M = length(ks)
     nvals = Int[sum(maximum(features[m], 1)) for m in 1:M]
     γs = Matrix{Float64}[
-        Array(Float64, nvals[m], restarts * ks[m]) for m in 1:M
+        Array{Float64}(nvals[m], restarts * ks[m]) for m in 1:M
     ]
 
     for r in 1:restarts
@@ -482,13 +482,13 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
 
         for m in 1:M
             for k in ks[m]
-                γs[m][:, r + k - 1] .= log(vcat(model.γ[m][k]...))
+                γs[m][:, r + k - 1] .= log.(vcat(model.γ[m][k]...))
             end
         end
     end
 
     best_cost = fill(Inf, M)
-    best_centres = [Array(Float64, nvals[m], ks[m]) for m in 1:M]
+    best_centres = [Array{Float64}(nvals[m], ks[m]) for m in 1:M]
     res = [kmeans(γs[m], ks[m]) for m in 1:M]
     for m in 1:M
         for _ in 1:10
@@ -503,7 +503,7 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
     model = IMMCTM(ks, α, features, X)
     for m in 1:model.M
         for k in 1:ks[m]
-            centre = vec(exp(best_centres[m][:, k]))
+            centre = vec(exp.(best_centres[m][:, k]))
 
             start = 1
             for i in 1:model.I[m]
@@ -562,6 +562,7 @@ function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
     obsmodel.Σ .= model.Σ[obsMK, obsMK]
     obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
     obsmodel.γ = deepcopy(model.γ[obsM])
+    obsmodel.Elnϕ = deepcopy(model.Elnϕ[obsM])
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter

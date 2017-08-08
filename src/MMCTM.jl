@@ -44,22 +44,22 @@ type MMCTM
 
         model.θ = [
             [
-               rand(Dirichlet(model.K[m], 1.0 / model.K[m]), size(X[d][m])[1])
+                fill(1.0 / model.K[m], model.K[m], size(model.X[d][m])[1])
                 for m in 1:model.M
             ] for d in 1:model.D
         ]
 
         model.γ = [
-            [Array(Float64, model.V[m]) for k in 1:model.K[m]]
+            [rand(1:100, model.V[m]) for k in 1:model.K[m]]
             for m in 1:model.M
         ]
         model.Elnϕ = deepcopy(model.γ)
-        update_γ!(model)
+        update_Elnϕ!(model)
 
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
 
-        model.ζ = [Array(Float64, model.M) for d in 1:model.D]
+        model.ζ = [Array{Float64}(model.M) for d in 1:model.D]
         for d in 1:model.D update_ζ!(model, d) end
 
         model.converged = false
@@ -140,7 +140,7 @@ function update_ζ!(model::MMCTM, d::Int)
     for m in 1:model.M
         stop = start + model.K[m] - 1
         model.ζ[d][m] = sum(
-            exp(model.λ[d][start:stop] .+ 0.5 * model.ν[d][start:stop])
+            exp.(model.λ[d][start:stop] .+ 0.5 * model.ν[d][start:stop])
         )
         start += model.K[m]
     end
@@ -181,7 +181,7 @@ function update_Elnϕ!(model::MMCTM)
     for m in 1:model.M
         for k in 1:model.K[m]
             model.Elnϕ[m][k] .= (
-                digamma(model.γ[m][k]) .- digamma(sum(model.γ[m][k]))
+                digamma.(model.γ[m][k]) .- digamma(sum(model.γ[m][k]))
             )
         end
     end
@@ -261,13 +261,13 @@ function calculate_ElnPZ(model::MMCTM)
     lnp = 0.0
 
     for d in 1:model.D
-        Eeη = exp(model.λ[d] .+ 0.5model.ν[d])
+        Eeη = exp.(model.λ[d] .+ 0.5model.ν[d])
         sumθ = calculate_sumθ(model, d)
         Ndivζ = calculate_Ndivζ(model, d)
 
         lnp += sum(model.λ[d] .* sumθ)
         lnp -= sum(Ndivζ .* Eeη) - sum(model.N[d])
-        lnp -= sum(model.N[d] .* log(model.ζ[d]))
+        lnp -= sum(model.N[d] .* log.(model.ζ[d]))
     end
 
     return lnp
@@ -310,7 +310,7 @@ end
 function calculate_ElnQη(model::MMCTM)
     lnq = 0.0
     for d in 1:model.D
-        lnq += -0.5 * (sum(log(model.ν[d])) + sum(model.K) * (log(2π) + 1))
+        lnq += -0.5 * (sum(log.(model.ν[d])) + sum(model.K) * (log(2π) + 1))
     end
     return lnq
 end
@@ -319,7 +319,9 @@ function calculate_ElnQZ(model::MMCTM)
     lnq = 0.0
     for d in 1:model.D
         for m in 1:model.M
-            lnq += sum(model.X[d][m][:, 2]' .* log(model.θ[d][m] .^ model.θ[d][m]))
+            lnq += sum(
+                model.X[d][m][:, 2]' .* log.(model.θ[d][m] .^ model.θ[d][m])
+            )
         end
     end
     return lnq
@@ -339,7 +341,7 @@ end
 
 function calculate_docmodality_loglikelihood(X::Matrix{Int},
         η::Vector{Float64}, ϕ::Vector{Vector{Float64}})
-    props = exp(η) ./ sum(exp(η))
+    props = exp.(η) ./ sum(exp.(η))
 
     K = length(η)
 
@@ -375,7 +377,7 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
 end
 
 function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
-    ll = Array(Float64, model.M)
+    ll = Array{Float64}(model.M)
 
     offset = 1
     for m in 1:model.M
@@ -440,7 +442,7 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
         for m in 1:model.M
     ]
     γs = Matrix{Float64}[
-        Array(Float64, nvals[m], restarts * ks[m]) for m in 1:M
+        Array{Float64}(nvals[m], restarts * ks[m]) for m in 1:M
     ]
 
     for r in 1:restarts
@@ -450,13 +452,13 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
 
         for m in 1:M
             for k in ks[m]
-                γs[m][:, r + k - 1] .= log(model.γ[m][k])
+                γs[m][:, r + k - 1] .= log.(model.γ[m][k])
             end
         end
     end
 
     best_cost = fill(Inf, M)
-    best_centres = [Array(Float64, nvals[m], ks[m]) for m in 1:M]
+    best_centres = [Array{Float64}(nvals[m], ks[m]) for m in 1:M]
     res = [kmeans(γs[m], ks[m]) for m in 1:M]
     for m in 1:M
         for _ in 1:10
@@ -471,7 +473,7 @@ function metafit(ks::Vector{Int}, α::Vector{Float64},
     model = MMCTM(ks, α, X)
     for m in 1:model.M
         for k in 1:ks[m]
-            model.γ[m][k] = vec(exp(best_centres[m][:, k]))
+            model.γ[m][k] = vec(exp.(best_centres[m][:, k]))
         end
     end
 
@@ -523,6 +525,7 @@ function predict_modality_η(Xobs::Vector{Vector{Matrix{Int}}}, m::Int,
     obsmodel.Σ .= model.Σ[obsMK, obsMK]
     obsmodel.invΣ .= model.invΣ[obsMK, obsMK]
     obsmodel.γ = deepcopy(model.γ[obsM])
+    obsmodel.Elnϕ = deepcopy(model.Elnϕ[obsM])
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter

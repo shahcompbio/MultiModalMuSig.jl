@@ -71,6 +71,7 @@ X = Vector{Matrix{Int}}[
     @test length(model.γ[1]) == 2
     @test length(model.γ[1][1]) == 2
     @test length(model.γ[1][1][1]) == 2
+    @test all(model.γ[1][1][1] .> 0) == true
 end
 
 @testset "calculate_Ndivζ" begin
@@ -133,7 +134,7 @@ end
             (exp(λ[3] + 0.5ν[3]) + exp(λ[4] + 0.5ν[4]) + exp(λ[5] + 0.5ν[5])) +
         0.5 * (log(ν[1]) + log(ν[2]) + log(ν[3]) + log(ν[4]) + log(ν[5]))
     )
-    ∇ν = Array(Float64, sum(K))
+    ∇ν = Array{Float64}(sum(K))
     Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
     objective = MultiModalMuSig.ν_objective(ν, ∇ν, λ, Ndivζ, μ, invΣ)
     @test objective ≈ L
@@ -192,7 +193,7 @@ end
     MultiModalMuSig.update_Elnϕ!(model)
     MultiModalMuSig.update_θ!(model, 1)
 
-    θ = Array(Float64, 2, 2)
+    θ = Array{Float64}(2, 2)
     θ[1, 1] = exp(1 + digamma(0.1) - digamma(0.3) + digamma(0.1) - digamma(1.1))
     θ[2, 1] = exp(2 + digamma(0.1) - digamma(0.2) + digamma(1.0) - digamma(2.0))
     θ[1, 2] = exp(1 + digamma(0.1) - digamma(0.3) + digamma(1.0) - digamma(1.1))
@@ -205,7 +206,7 @@ end
     @test any(model.θ[1][1] .< 0.0) == false
 
     MultiModalMuSig.update_θ!(model, 2)
-    θ = Array(Float64, 3, 2)
+    θ = Array{Float64}(3, 2)
     θ[1, 1] = exp(1 + digamma(0.5) - digamma(1.0) + digamma(1.0) - digamma(2.5))
     θ[2, 1] = exp(4 + digamma(2.0) - digamma(3.0) + digamma(2.0) - digamma(5.0))
     θ[3, 1] = exp(2 + digamma(5.0) - digamma(6.0) + digamma(5.0) - digamma(7.0))
@@ -346,7 +347,7 @@ end
 
 @testset "loglikelihoods"  begin
     η = [[1.0, 2.0], [2.0, 3.0]]
-    θ = [exp(η[d]) ./ sum(exp(η[d])) for d in 1:2]
+    θ = [exp.(η[d]) ./ sum(exp.(η[d])) for d in 1:2]
 
     γ = [
         [[0.1, 0.2],[0.1, 1.0]],

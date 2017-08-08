@@ -88,7 +88,7 @@ end
     push!(θ, [0.4 0.1; 0.6 0.9])
     push!(θ, [0.3 0.4; 0.3 0.5; 0.4 0.1])
 
-    ∇λ = Array(Float64, sum(K))
+    ∇λ = Array{Float64}(sum(K))
     sumθ = vcat([vec(sum(θ[m] .* X[1][m][:, 2]', 2)) for m in 1:model.M]...)
     Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
     objective = MultiModalMuSig.λ_objective(λ, ∇λ, ν, Ndivζ, sumθ, μ, invΣ)
