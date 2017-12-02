@@ -4,11 +4,11 @@ type LDA
     N::Vector{Int}  # observations per document modality
     V::Int          # vocab items per modality
 
-    α::Float64              # topic hyperparameter
+    η::Float64              # topic hyperparameter
     λ::Matrix{Float64}      # topic variational parameters
     Elnβ::Matrix{Float64}
     
-    η::Float64                  # doc-topic hyperparameter
+    α::Float64                  # doc-topic hyperparameter
     γ::Matrix{Float64}          # doc-topic variational parameters
     Elnθ::Matrix{Float64}
     ϕ::Vector{Matrix{Float64}}  # Z variational parameters
