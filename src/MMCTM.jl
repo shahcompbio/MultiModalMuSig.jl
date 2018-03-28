@@ -5,17 +5,17 @@ type MMCTM
     M::Int                  # modalities
     V::Vector{Int}          # vocab items per modality
 
-    μ::Vector{Float64}
-    Σ::Matrix{Float64}
-    invΣ::Matrix{Float64}
-    α::Vector{Float64}
+    μ::Vector{Float64}      # doc-topic mean
+    Σ::Matrix{Float64}      # doc-topic covariance
+    invΣ::Matrix{Float64}   # inverse Σ
+    α::Vector{Float64}      # topic-word hyperparameter
 
-    ζ::Vector{Vector{Float64}}
-    θ::Vector{Vector{Matrix{Float64}}}
-    λ::Vector{Vector{Float64}}
-    ν::Vector{Vector{Float64}}
-    γ::Vector{Vector{Vector{Float64}}}
-    Elnϕ::Vector{Vector{Vector{Float64}}}
+    ζ::Vector{Vector{Float64}}              # doc-topic normalizer var params
+    θ::Vector{Vector{Matrix{Float64}}}      # Z variational parameters
+    λ::Vector{Vector{Float64}}              # doc-topic mean variational params
+    ν::Vector{Vector{Float64}}              # doc-topic variance var params
+    γ::Vector{Vector{Vector{Float64}}}      # topic variational parameters
+    Elnϕ::Vector{Vector{Vector{Float64}}}   # expectation of ln(ϕ)
 
     X::Vector{Vector{Matrix{Int}}}
 
@@ -431,54 +431,6 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
     model.ll = ll[end]
 
     return ll
-end
-
-function metafit(ks::Vector{Int}, α::Vector{Float64},
-        X::Vector{Vector{Matrix{Int}}}; restarts::Int=25)
-    
-    M = length(ks)
-    nvals = [
-        maximum(maximum(X[d][m][:, 1]) for d in 1:model.D)
-        for m in 1:model.M
-    ]
-    γs = Matrix{Float64}[
-        Array{Float64}(nvals[m], restarts * ks[m]) for m in 1:M
-    ]
-
-    for r in 1:restarts
-        println("restart $r")
-        model = MMCTM(ks, α, X)
-        fit!(model, maxiter=1000, verbose=false)
-
-        for m in 1:M
-            for k in ks[m]
-                γs[m][:, r + k - 1] .= log.(model.γ[m][k])
-            end
-        end
-    end
-
-    best_cost = fill(Inf, M)
-    best_centres = [Array{Float64}(nvals[m], ks[m]) for m in 1:M]
-    res = [kmeans(γs[m], ks[m]) for m in 1:M]
-    for m in 1:M
-        for _ in 1:10
-            res = kmeans(γs[m], ks[m])
-            if res.totalcost < best_cost[m]
-                best_cost[m] = res.totalcost
-                best_centres[m] .= res.centers
-            end
-        end
-    end
-
-    model = MMCTM(ks, α, X)
-    for m in 1:model.M
-        for k in 1:ks[m]
-            model.γ[m][k] = vec(exp.(best_centres[m][:, k]))
-        end
-    end
-
-    fit!(model, maxiter=1000, verbose=false)
-    return model
 end
 
 function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
