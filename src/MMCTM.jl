@@ -5,16 +5,19 @@ type MMCTM
     M::Int                  # modalities
     V::Vector{Int}          # vocab items per modality
 
-    μ::Vector{Float64}      # doc-topic mean
-    Σ::Matrix{Float64}      # doc-topic covariance
-    invΣ::Matrix{Float64}   # inverse Σ
-    α::Vector{Float64}      # topic-word hyperparameter
+    μ::Vector{Float64}                      # doc-topic mean
+    Σ::Matrix{Float64}                      # doc-topic covariance
+    invΣ::Matrix{Float64}                   # inverse Σ
+    props::Vector{Vector{Vector{Float64}}}  # doc-topic
+    α::Vector{Float64}                      # topic-word hyperparameter
+    ϕ::Vector{Vector{Vector{Float64}}}      # topic-word
 
-    ζ::Vector{Vector{Float64}}              # doc-topic normalizer var params
-    θ::Vector{Vector{Matrix{Float64}}}      # Z variational parameters
-    λ::Vector{Vector{Float64}}              # doc-topic mean variational params
-    ν::Vector{Vector{Float64}}              # doc-topic variance var params
-    γ::Vector{Vector{Vector{Float64}}}      # topic variational parameters
+    # variational parameters
+    ζ::Vector{Vector{Float64}}              # doc-topic normalizer
+    θ::Vector{Vector{Matrix{Float64}}}      # Z
+    λ::Vector{Vector{Float64}}              # doc-topic mean
+    ν::Vector{Vector{Float64}}              # doc-topic variance
+    γ::Vector{Vector{Vector{Float64}}}      # topic-word
     Elnϕ::Vector{Vector{Vector{Float64}}}   # expectation of ln(ϕ)
 
     X::Vector{Vector{Matrix{Int}}}
@@ -24,7 +27,7 @@ type MMCTM
     ll::Vector{Float64}
 
     function MMCTM(k::Vector{Int}, α::Vector{Float64}, V::Vector{Int},
-            X::Vector{Vector{Matrix{Int}}})
+            X::Vector{Vector{Matrix{Int}}}; init=:random)
         model = new()
 
         model.K = copy(k)
@@ -41,6 +44,9 @@ type MMCTM
         model.μ = zeros(MK)
         model.Σ = eye(MK)
         model.invΣ = eye(MK)
+        model.props = [
+            [Array{Float64}(model.K[m]) for m in 1:model.M] for d in 1:model.D
+        ]
 
         model.θ = [
             [
@@ -49,12 +55,28 @@ type MMCTM
             ] for d in 1:model.D
         ]
 
-        model.γ = [
-            [rand(1:100, model.V[m]) for k in 1:model.K[m]]
+        if init == :random
+            model.γ = [
+                [rand(1:100, model.V[m]) for k in 1:model.K[m]]
+                for m in 1:model.M
+            ]
+        elseif init == :document
+            model.γ = [
+                [ones(model.V[m]) for k in 1:model.K[m]] for m in 1:model.M
+            ]
             for m in 1:model.M
-        ]
+                seed_docs = sample(1:model.D, model.K[m], replace=false)
+                for k in model.K[m]
+                    d = seed_docs[k]
+                    model.γ[m][k][X[d][m][:, 1]] .+= X[d][m][:, 2]
+                end
+            end
+        else
+            error("init must be either :random or :document")
+        end
         model.Elnϕ = deepcopy(model.γ)
         update_Elnϕ!(model)
+        model.ϕ = deepcopy(model.γ)
 
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
@@ -117,6 +139,17 @@ function update_λ!(model::MMCTM, d::Int)
     )
     (optobj, optλ, ret) = optimize(opt, model.λ[d])
     model.λ[d] .= optλ
+end
+
+function update_props!(model::MMCTM)
+    for d in 1:model.D
+        offset = 1
+        for m in 1:model.M
+            η = model.λ[d][offset:(offset + model.K[m] - 1)]
+            model.props[d][m] .= exp.(η) ./ sum(exp.(η))
+            offset += model.K[m]
+        end
+    end
 end
 
 function update_ν!(model::MMCTM, d::Int)
@@ -205,6 +238,14 @@ function update_γ!(model::MMCTM)
         end
     end
     update_Elnϕ!(model)
+end
+
+function update_ϕ!(model::MMCTM)
+    for m in 1:model.M
+        for k in 1:model.K[m]
+            model.ϕ[m][k] .= model.γ[m][k] ./ sum(model.γ[m][k])
+        end
+    end
 end
 
 function update_α!(model::MMCTM)
@@ -340,10 +381,9 @@ function calculate_elbo(model::MMCTM)
 end
 
 function calculate_docmodality_loglikelihood(X::Matrix{Int},
-        η::Vector{Float64}, ϕ::Vector{Vector{Float64}})
-    props = exp.(η) ./ sum(exp.(η))
+        props::Vector{Float64}, ϕ::Vector{Vector{Float64}})
 
-    K = length(η)
+    K = length(ϕ)
 
     ll = 0.0
     for w in 1:size(X, 1)
@@ -359,7 +399,7 @@ function calculate_docmodality_loglikelihood(X::Matrix{Int},
 end
 
 function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
-        η::Vector{Vector{Float64}}, ϕ::Vector{Vector{Float64}})
+        props::Vector{Vector{Float64}}, ϕ::Vector{Vector{Float64}})
     D = length(X)
 
     ll = 0.0
@@ -367,7 +407,7 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
     for d in 1:D
         doc_N = sum(X[d][:, 2])
         if doc_N > 0
-            doc_ll = calculate_docmodality_loglikelihood(X[d], η[d], ϕ)
+            doc_ll = calculate_docmodality_loglikelihood(X[d], props[d], ϕ)
             ll += doc_ll * doc_N
             N += doc_N
         end
@@ -376,22 +416,34 @@ function calculate_modality_loglikelihood(X::Vector{Matrix{Int}},
     return ll / N
 end
 
-function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
-    ll = Array{Float64}(model.M)
+function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
+                                  props::Vector{Vector{Vector{Float64}}},
+                                  ϕ::Vector{Vector{Vector{Float64}}})
+    D = length(X)
+    M = length(ϕ)
+    K = [length(ϕ[m]) for m in 1:M]
+
+    ll = Array{Float64}(M)
 
     offset = 1
-    for m in 1:model.M
-        mk = offset:(offset + model.K[m] - 1)
-        η = [model.λ[d][mk] for d in 1:model.D]
-        Xm = [X[d][m] for d in 1:model.D]
-        ϕ = [model.γ[m][k] ./ sum(model.γ[m][k]) for k in 1:model.K[m]]
+    for m in 1:M
+        Xm = [X[d][m] for d in 1:D]
+        propsm = [props[d][m] for d in 1:D]
 
-        ll[m] = calculate_modality_loglikelihood(Xm, η, ϕ)
+        ll[m] = calculate_modality_loglikelihood(Xm, propsm, ϕ[m])
 
-        offset += model.K[m]
+        offset += K[m]
     end
 
     return ll
+end
+
+function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}}, model::MMCTM)
+    return calculate_loglikelihoods(X, model.props, model.ϕ)
+end
+
+function calculate_loglikelihoods(model::MMCTM)
+    return calculate_loglikelihoods(model.X, model.props, model.ϕ)
 end
 
 function fitdoc!(model::MMCTM, d::Int)
@@ -416,7 +468,10 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
             update_α!(model)
         end
 
-        push!(ll, calculate_loglikelihoods(model.X, model))
+        update_props!(model)
+        update_ϕ!(model)
+
+        push!(ll, calculate_loglikelihoods(model))
 
         if verbose
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
@@ -433,6 +488,56 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
     return ll
 end
 
+function unsmoothed_update_θ!(model::MMCTM, d::Int)
+    offset = 0
+    for m in 1:model.M
+        for w in 1:size(model.X[d][m], 1)
+            v = model.X[d][m][w, 1]
+
+            for k in 1:model.K[m]
+                model.θ[d][m][k, w] = exp(model.λ[d][offset + k]) * model.ϕ[m][k][v]
+            end
+        end
+        model.θ[d][m] ./= sum(model.θ[d][m], 1)
+        offset += model.K[m]
+    end
+end
+
+function transform(model::MMCTM, X::Vector{Vector{Matrix{Int}}};
+                   maxiter=1000, tol=1e4, verbose=false)
+
+    newmodel = MMCTM(model.K, model.α, X)
+    newmodel.ϕ = deepcopy(model.ϕ)
+
+    ll = Vector{Float64}[]
+    for iter in 1:maxiter
+        for d in 1:newmodel.D
+            update_ζ!(newmodel, d)
+            unsmoothed_update_θ!(newmodel, d)
+            update_ν!(newmodel, d)
+            update_λ!(newmodel, d)
+        end
+
+        update_μ!(newmodel)
+        update_Σ!(newmodel)
+
+        update_props!(newmodel)
+
+        push!(ll, calculate_loglikelihoods(newmodel))
+
+        if verbose
+            println("$iter\tLog-likelihoods: ", join(ll[end], ", "))
+        end
+
+        if length(ll) > 10 && check_convergence(ll, tol=tol)
+            newmodel.converged = true
+            break
+        end
+    end
+
+    return newmodel
+end
+
 function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
         maxiter=100, verbose=false)
 
@@ -442,6 +547,7 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
     heldout_model.invΣ .= model.invΣ
     heldout_model.γ = deepcopy(model.γ)
     heldout_model.Elnϕ = deepcopy(model.Elnϕ)
+    heldout_model.ϕ = deepcopy(model.ϕ)
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
@@ -449,7 +555,9 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
             fitdoc!(heldout_model, d)
         end
 
-        push!(ll, calculate_loglikelihoods(Xheldout, heldout_model))
+        update_props!(model)
+
+        push!(ll, calculate_loglikelihoods(heldout_model))
 
         if verbose
             println("$iter\tLog-likelihoods: ", join(ll[end], ", "))

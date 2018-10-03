@@ -6,11 +6,13 @@ type LDA
 
     η::Float64              # topic hyperparameter
     λ::Matrix{Float64}      # topic variational parameters
-    Elnβ::Matrix{Float64}
+    β::Matrix{Float64}      # topic-word distributions
+    Elnβ::Matrix{Float64}   # expectation of ln(β)
     
     α::Float64                  # doc-topic hyperparameter
     γ::Matrix{Float64}          # doc-topic variational parameters
-    Elnθ::Matrix{Float64}
+    θ::Matrix{Float64}          # doc-topic distributions
+    Elnθ::Matrix{Float64}       # expectation of ln(θ)
     ϕ::Vector{Matrix{Float64}}  # Z variational parameters
 
     X::Vector{Matrix{Int}}
@@ -32,10 +34,12 @@ type LDA
         model.V = V
 
         model.λ = rand(1:100, model.V, model.K)
+        model.β = Array{Float64}(model.V, model.K)
         model.Elnβ = Array{Float64}(model.V, model.K)
         update_Elnβ!(model)
 
         model.γ = fill(1.0, model.K, model.D)
+        model.θ = Array{Float64}(model.K, model.D)
         model.Elnθ = Array{Float64}(model.K, model.D)
         update_Elnθ!(model)
 
@@ -85,6 +89,10 @@ function update_γ!(model::LDA)
     update_Elnθ!(model)
 end
 
+function update_θ!(model::LDA)
+    model.θ .= model.γ ./ sum(model.γ, 1)
+end
+
 function update_Elnβ!(model::LDA)
     model.Elnβ .= digamma.(model.λ) .- digamma.(sum(model.λ, 1))
 end
@@ -97,6 +105,10 @@ function update_λ!(model::LDA)
     end
 
     update_Elnβ!(model)
+end
+
+function update_β!(model::LDA)
+    model.β .= model.λ ./ sum(model.λ, 1)
 end
 
 function calculate_ElnPβ(model::LDA)
@@ -159,11 +171,9 @@ function calculate_elbo(model::LDA)
     return elbo
 end
 
-function calculate_loglikelihood(X::Vector{Matrix{Int}}, model::LDA)
+function calculate_loglikelihood(X::Vector{Matrix{Int}}, θ::Matrix{Float64},
+                                 β::Matrix{Float64})
     ll = 0.0
-
-    β = model.λ ./ sum(model.λ, 1)
-    θ = model.γ ./ sum(model.γ, 1)
 
     N = 0
     for d in 1:length(X)
@@ -177,7 +187,15 @@ function calculate_loglikelihood(X::Vector{Matrix{Int}}, model::LDA)
     return ll / N
 end
 
-function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true)
+function calculate_loglikelihood(X::Vector{Matrix{Int}}, model::LDA)
+    return calculate_loglikelihood(X, model.θ, model.β)
+end
+
+function calculate_loglikelihood(model::LDA)
+    return calculate_loglikelihood(model.X, model.θ, model.β)
+end
+
+function fit!(model::LDA; maxiter=1000, tol=1e-4, verbose=true)
     ll = Float64[]
 
     for iter in 1:maxiter
@@ -185,7 +203,10 @@ function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true)
         update_ϕ!(model)
         update_λ!(model)
 
-        push!(ll, calculate_loglikelihood(model.X, model))
+        update_β!(model)
+        update_θ!(model)
+
+        push!(ll, calculate_loglikelihood(model))
 
         if verbose
             println("$iter\tLog-likelihood: ", ll[end])
@@ -200,6 +221,45 @@ function fit!(model::LDA; maxiter=100, tol=1e-4, verbose=true)
     model.ll = ll[end]
 
     return ll
+end
+
+function unsmoothed_update_ϕ!(model::LDA)
+    for d in 1:model.D
+        model.ϕ[d] .= exp.(model.Elnθ[:, d]) .* model.β[model.X[d][:, 1], :]'
+        model.ϕ[d] ./= sum(model.ϕ[d], 1)
+    end
+end
+
+function transform(model::LDA, X::Vector{Matrix{Int}};
+                   maxiter=1000, tol=1e-4, verbose=false)
+
+    newmodel = LDA(model.K, model.α, model.η, X)
+    newmodel.β .= model.β
+
+    ll = Float64[]
+
+    for iter in 1:maxiter
+        update_γ!(newmodel)
+        unsmoothed_update_ϕ!(newmodel)
+        update_θ!(newmodel)
+
+        push!(ll, calculate_loglikelihood(newmodel))
+
+        if verbose
+            println("$iter\tLog-likelihood: ", ll[end])
+        end
+
+        if length(ll) > 10 && check_convergence(ll, tol=tol)
+            newmodel.converged = true
+            break
+        end
+    end
+
+    if !newmodel.converged
+        warn("transform did not converge")
+    end
+
+    return newmodel.θ
 end
 
 function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::LDA;
