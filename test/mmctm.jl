@@ -348,7 +348,7 @@ end
 
 @testset "loglikelihoods" begin 
     η = [[1.0, 2.0], [2.0, 3.0]]
-    θ = [exp.(η[d]) ./ sum(exp.(η[d])) for d in 1:2]
+    props = [exp.(η[d]) ./ sum(exp.(η[d])) for d in 1:2]
 
     γ = [
         [1, 2, 1, 3],
@@ -360,26 +360,28 @@ end
 
     sum_ll = [
         (
-            Xm1[1][1, 2] * log(θ[1][1] * ϕ[1][1] + θ[1][2] * ϕ[2][1]) +
-            Xm1[1][2, 2] * log(θ[1][1] * ϕ[1][2] + θ[1][2] * ϕ[2][2])
+            Xm1[1][1, 2] * log(props[1][1] * ϕ[1][1] + props[1][2] * ϕ[2][1]) +
+            Xm1[1][2, 2] * log(props[1][1] * ϕ[1][2] + props[1][2] * ϕ[2][2])
         ),
         (
-            Xm1[2][1, 2] * log(θ[2][1] * ϕ[1][3] + θ[2][2] * ϕ[2][3]) +
-            Xm1[2][2, 2] * log(θ[2][1] * ϕ[1][4] + θ[2][2] * ϕ[2][4])
+            Xm1[2][1, 2] * log(props[2][1] * ϕ[1][3] + props[2][2] * ϕ[2][3]) +
+            Xm1[2][2, 2] * log(props[2][1] * ϕ[1][4] + props[2][2] * ϕ[2][4])
         )
     ]
     N = [sum(X[d][1][:, 2]) for d in 1:2]
 
-    res = MultiModalMuSig.calculate_docmodality_loglikelihood(Xm1[1], η[1], ϕ)
+    res = MultiModalMuSig.calculate_docmodality_loglikelihood(
+        Xm1[1], props[1], ϕ
+    )
     @test res ≈ sum_ll[1] / N[1]
 
-    res = MultiModalMuSig.calculate_modality_loglikelihood(Xm1, η, ϕ)
+    res = MultiModalMuSig.calculate_modality_loglikelihood(Xm1, props, ϕ)
     @test res ≈ sum(sum_ll) / sum(N)
 
     model = MultiModalMuSig.MMCTM(K, α, X)
-    model.λ[1][1:2] .= η[1][1:2]
-    model.λ[2][1:2] .= η[2][1:2]
-    model.γ[1] = deepcopy(γ)
+    model.props[1][1] = props[1]
+    model.props[2][1] = props[2]
+    model.ϕ[1] = deepcopy(ϕ)
 
     res = MultiModalMuSig.calculate_loglikelihoods(X, model)
     @test res[1] ≈ sum(sum_ll) / sum(N)
