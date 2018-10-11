@@ -1,9 +1,9 @@
 module MultiModalMuSig
 
-using Distributions
+using LinearAlgebra
+using Statistics
+using SpecialFunctions
 using NLopt
-using Clustering
-using StatsFuns
 
 export IMMCTM, MMCTM, ILDA, LDA, fit!
 

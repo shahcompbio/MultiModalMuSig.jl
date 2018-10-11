@@ -1,5 +1,5 @@
-julia 0.5
-Distributions
+julia 0.7.0
+LinearAlgebra
+Statistics
+SpecialFunctions
 NLopt
-StatsFuns
-Clustering

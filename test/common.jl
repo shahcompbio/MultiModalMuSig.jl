@@ -1,5 +1,5 @@
 using MultiModalMuSig
-using Base.Test
+using Test
 
 K = [2, 3]
 α = [0.1, 0.1]
@@ -88,8 +88,8 @@ end
     push!(θ, [0.4 0.1; 0.6 0.9])
     push!(θ, [0.3 0.4; 0.3 0.5; 0.4 0.1])
 
-    ∇λ = Array{Float64}(sum(K))
-    sumθ = vcat([vec(sum(θ[m] .* X[1][m][:, 2]', 2)) for m in 1:model.M]...)
+    ∇λ = Array{Float64}(undef, sum(K))
+    sumθ = vcat([vec(sum(θ[m] .* X[1][m][:, 2]', dims=2)) for m in 1:model.M]...)
     Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
     objective = MultiModalMuSig.λ_objective(λ, ∇λ, ν, Ndivζ, sumθ, μ, invΣ)
     @test objective ≈ calc_λ_obj(μ, invΣ, λ, ν, ζ, θ, X)

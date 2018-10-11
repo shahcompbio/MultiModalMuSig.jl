@@ -32,7 +32,7 @@ function ν_objective(ν::Vector{Float64}, ∇ν::Vector{Float64},
         ∇ν .= -0.5diag(invΣ) .- (Ndivζ / 2) .* Eeη .+ (1 ./ (2ν))
     end
 
-    return -0.5 * trace(diagm(ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log.(ν)) / 2
+    return -0.5 * tr(diagm(0 => ν) * invΣ) - sum(Ndivζ .* Eeη) + sum(log.(ν)) / 2
 end
 
 function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},

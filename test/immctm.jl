@@ -1,5 +1,7 @@
 using MultiModalMuSig
-using Base.Test
+using LinearAlgebra
+using SpecialFunctions
+using Test
 
 K = [2, 3]
 α = [0.1, 0.1]
@@ -63,7 +65,7 @@ X = Vector{Matrix{Int}}[
 
     @test length(model.ζ) == 2
     @test length(model.ζ[1]) == 2
-    @test sum(model.θ[1][1], 1) ≈ ones(2)'
+    @test sum(model.θ[1][1], dims=1) ≈ ones(2)'
     @test length(model.λ[1]) == 5
     @test model.ν[1] == ones(5)
 
@@ -121,20 +123,20 @@ end
     model = MultiModalMuSig.IMMCTM(K, α, features, X)
 
     μ = Float64[1, 1, 2, 2, 1]
-    invΣ = eye(sum(K))
+    invΣ = Matrix{Float64}(I, sum(K), sum(K))
     λ = Float64[1, 2, 3, 4, 1]
     ν = Float64[1, 1, 1, 2, 1]
     ζ = Float64[2, 1]
 
     L = (
-        -0.5 * trace(diagm(ν) * invΣ) -
+        -0.5 * tr(diagm(0 => ν) * invΣ) -
         sum(X[1][1][:, 2]) / ζ[1] *
             (exp(λ[1] + 0.5ν[1]) + exp(λ[2] + 0.5ν[2])) -
         sum(X[1][2][:, 2]) / ζ[2] *
             (exp(λ[3] + 0.5ν[3]) + exp(λ[4] + 0.5ν[4]) + exp(λ[5] + 0.5ν[5])) +
         0.5 * (log(ν[1]) + log(ν[2]) + log(ν[3]) + log(ν[4]) + log(ν[5]))
     )
-    ∇ν = Array{Float64}(sum(K))
+    ∇ν = Array{Float64}(undef, sum(K))
     Ndivζ = vcat([fill(model.N[1][m] / ζ[m], K[m]) for m in 1:model.M]...)
     objective = MultiModalMuSig.ν_objective(ν, ∇ν, λ, Ndivζ, μ, invΣ)
     @test objective ≈ L
@@ -193,7 +195,7 @@ end
     MultiModalMuSig.update_Elnϕ!(model)
     MultiModalMuSig.update_θ!(model, 1)
 
-    θ = Array{Float64}(2, 2)
+    θ = Array{Float64}(undef, 2, 2)
     θ[1, 1] = exp(1 + digamma(0.1) - digamma(0.3) + digamma(0.1) - digamma(1.1))
     θ[2, 1] = exp(2 + digamma(0.1) - digamma(0.2) + digamma(1.0) - digamma(2.0))
     θ[1, 2] = exp(1 + digamma(0.1) - digamma(0.3) + digamma(1.0) - digamma(1.1))
@@ -201,12 +203,12 @@ end
     θ[:, 1] ./= sum(θ[:, 1])
     θ[:, 2] ./= sum(θ[:, 2])
 
-    @test sum(model.θ[1][1], 1) ≈ ones(size(X[1][1])[1])'
+    @test sum(model.θ[1][1], dims=1) ≈ ones(size(X[1][1])[1])'
     @test model.θ[1][1] ≈ θ
     @test any(model.θ[1][1] .< 0.0) == false
 
     MultiModalMuSig.update_θ!(model, 2)
-    θ = Array{Float64}(3, 2)
+    θ = Array{Float64}(undef, 3, 2)
     θ[1, 1] = exp(1 + digamma(0.5) - digamma(1.0) + digamma(1.0) - digamma(2.5))
     θ[2, 1] = exp(4 + digamma(2.0) - digamma(3.0) + digamma(2.0) - digamma(5.0))
     θ[3, 1] = exp(2 + digamma(5.0) - digamma(6.0) + digamma(5.0) - digamma(7.0))
@@ -239,7 +241,7 @@ end
     diff1 = model.λ[1] .- model.μ
     diff2 = model.λ[2] .- model.μ
     Σ = 0.5 * (
-        diagm(model.ν[1]) + diagm(model.ν[2]) +
+        diagm(0 => model.ν[1]) + diagm(0 => model.ν[2]) +
         (diff1 * diff1') + (diff2 * diff2')
     )
     @test model.Σ ≈ Σ
@@ -275,7 +277,7 @@ end
     L = K[1] * (lgamma(2α[1]) - 2lgamma(α[1])) + α[1] * sum_Elnϕ
     grad = 2K[1] * (digamma(2α[1]) - digamma(α[1])) + sum_Elnϕ
 
-    ∇α = Array{Float64}(1)
+    ∇α = Array{Float64}(undef, 1)
     @test MultiModalMuSig.α_objective(model.α[1][1:1], ∇α, sum_Elnϕ, K[1], 2) ≈ L
     @test ∇α[1] ≈ grad
 

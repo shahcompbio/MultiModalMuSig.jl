@@ -1,4 +1,4 @@
-type ILDA
+mutable struct ILDA
     K::Int          # topics
     D::Int          # documents
     I::Int          # features
@@ -32,15 +32,17 @@ type ILDA
         model.X = X
         model.D = length(X)
         model.I = size(features, 2)
-        model.J = vec(maximum(features, 1))
+        model.J = vec(maximum(features, dims=1))
         model.features = features
 
         model.λ = [rand(1:100, model.J[i], model.K) for i in 1:model.I]
-        model.Elnβ = [Array{Float64}(model.J[i], model.K) for i in 1:model.I]
+        model.Elnβ = [
+            Array{Float64}(undef, model.J[i], model.K) for i in 1:model.I
+        ]
         update_Elnβ!(model)
 
         model.γ = fill(1.0, model.K, model.D)
-        model.Elnθ = Array{Float64}(model.K, model.D)
+        model.Elnθ = Array{Float64}(undef, model.K, model.D)
         update_Elnθ!(model)
 
         model.ϕ = [
@@ -72,12 +74,12 @@ function update_ϕ!(model::ILDA)
             end
         end
 
-        model.ϕ[d] .= exp.(model.ϕ[d]) ./ sum(exp.(model.ϕ[d]), 1)
+        model.ϕ[d] .= exp.(model.ϕ[d]) ./ sum(exp.(model.ϕ[d]), dims=1)
     end
 end
 
 function update_Elnθ!(model::ILDA)
-    model.Elnθ .= digamma.(model.γ) .- digamma.(sum(model.γ, 1))
+    model.Elnθ .= digamma.(model.γ) .- digamma.(sum(model.γ, dims=1))
 end
 
 function update_γ!(model::ILDA)
@@ -91,12 +93,14 @@ function update_γ!(model::ILDA)
 end
 
 function update_θ!(model::ILDA)
-    model.θ = model.γ ./ sum(model.γ, 1)
+    model.θ = model.γ ./ sum(model.γ, dims=1)
 end
 
 function update_Elnβ!(model::ILDA)
     for i in 1:model.I
-        model.Elnβ[i] .= digamma.(model.λ[i]) .- digamma.(sum(model.λ[i], 1))
+        model.Elnβ[i] .= (
+            digamma.(model.λ[i]) .- digamma.(sum(model.λ[i], dims=1))
+        )
     end
 end
 
@@ -122,7 +126,7 @@ function update_λ!(model::ILDA)
 end
 
 function update_β!(model::ILDA)
-    model.β = [model.λ[i] ./ sum(model.λ[i], 1) for i in 1:model.I]
+    model.β = [model.λ[i] ./ sum(model.λ[i], dims=1) for i in 1:model.I]
 end
 
 function calculate_ElnPβ(model::ILDA)
@@ -170,14 +174,14 @@ end
 function calculate_ElnQβ(model::ILDA)
     lnq = 0.0
     for i in 1:model.I
-        lnq = sum(lgamma.(model.λ[i])) - sum(lgamma.(sum(model.λ[i], 1)))
+        lnq = sum(lgamma.(model.λ[i])) - sum(lgamma.(sum(model.λ[i], dims=1)))
         lnq -= sum((model.λ[i] .- 1) .* model.Elnβ[i])
     end
     return lnq
 end
 
 function calculate_ElnQθ(model::ILDA)
-    lnq = sum(lgamma.(model.γ)) - sum(lgamma.(sum(model.γ, 1)))
+    lnq = sum(lgamma.(model.γ)) - sum(lgamma.(sum(model.γ, dims=1)))
     lnq -= sum((model.γ .- 1) .* model.Elnθ)
     return lnq
 end
@@ -279,7 +283,7 @@ function unsmoothed_update_ϕ!(model::ILDA)
             end
         end
 
-        model.ϕ[d] .= model.ϕ[d] ./ sum(model.ϕ[d], 1)
+        model.ϕ[d] .= model.ϕ[d] ./ sum(model.ϕ[d], dims=1)
     end
 end
 

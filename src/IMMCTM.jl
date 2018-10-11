@@ -1,4 +1,4 @@
-type IMMCTM
+mutable struct IMMCTM
     K::Vector{Int}          # topics
     D::Int                  # documents
     N::Vector{Vector{Int}}  # observations per document modality
@@ -39,15 +39,15 @@ type IMMCTM
         model.D = length(X)
         model.M = length(features)
         model.I = [size(features[m])[2] for m in 1:model.M]
-        model.J = [vec(maximum(features[m], 1)) for m in 1:model.M]
+        model.J = [vec(maximum(features[m], dims=1)) for m in 1:model.M]
         model.V = [size(features[m])[1] for m in 1:model.M]
         model.N = [[sum(X[d][m][:, 2]) for m in 1:model.M] for d in 1:model.D]
 
         MK = sum(model.K)
 
         model.μ = zeros(MK)
-        model.Σ = eye(MK)
-        model.invΣ = eye(MK)
+        model.Σ = Matrix{Float64}(I, MK, MK)
+        model.invΣ = Matrix{Float64}(I, MK, MK)
 
         model.θ = [
             [
@@ -69,7 +69,7 @@ type IMMCTM
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
 
-        model.ζ = [Array{Float64}(model.M) for d in 1:model.D]
+        model.ζ = [Array{Float64}(undef, model.M) for d in 1:model.D]
         for d in 1:model.D update_ζ!(model, d) end
 
         model.converged = false
@@ -90,7 +90,7 @@ end
 function calculate_sumθ(model::IMMCTM, d::Int)
     return vcat(
         [
-            vec(sum(model.θ[d][m] .* model.X[d][m][:, 2]', 2))
+            vec(sum(model.θ[d][m] .* model.X[d][m][:, 2]', dims=2))
             for m in 1:model.M
         ]...
     )
@@ -166,7 +166,7 @@ function update_θ!(model::IMMCTM, d::Int)
             end
 
         end
-        model.θ[d][m] ./= sum(model.θ[d][m], 1)
+        model.θ[d][m] ./= sum(model.θ[d][m], dims=1)
         offset += model.K[m]
     end
 end
@@ -176,7 +176,7 @@ function update_μ!(model::IMMCTM)
 end
 
 function update_Σ!(model::IMMCTM)
-    model.Σ .= sum(diagm.(model.ν))
+    model.Σ .= sum(diagm.(0 .=> model.ν))
     for d in 1:model.D
         diff = model.λ[d] .- model.μ
         model.Σ .+= diff * diff'
@@ -269,7 +269,7 @@ function calculate_ElnPη(model::IMMCTM)
         lnp += 0.5 * (
             logdet(model.invΣ) -
             sum(model.K) * log(2π) -
-            trace(diagm(model.ν[d]) * model.invΣ) -
+            tr(diagm(0 => model.ν[d]) * model.invΣ) -
             (diff' * model.invΣ * diff)[1]
         )
     end
@@ -407,7 +407,7 @@ end
 
 function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
         model::IMMCTM)
-    ll = Array{Float64}(model.M)
+    ll = Array{Float64}(undef, model.M)
 
     offset = 1
     for m in 1:model.M
@@ -463,59 +463,6 @@ function fit!(model::IMMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
     model.ll = ll[end]
 
     return ll
-end
-
-function metafit(ks::Vector{Int}, α::Vector{Float64},
-        features::Vector{Matrix{Int}},
-        X::Vector{Vector{Matrix{Int}}}; restarts::Int=25)
-    
-    M = length(ks)
-    nvals = Int[sum(maximum(features[m], 1)) for m in 1:M]
-    γs = Matrix{Float64}[
-        Array{Float64}(nvals[m], restarts * ks[m]) for m in 1:M
-    ]
-
-    for r in 1:restarts
-        println("restart $r")
-        model = IMMCTM(ks, α, features, X)
-        fit!(model, maxiter=1000, verbose=false)
-
-        for m in 1:M
-            for k in ks[m]
-                γs[m][:, r + k - 1] .= log.(vcat(model.γ[m][k]...))
-            end
-        end
-    end
-
-    best_cost = fill(Inf, M)
-    best_centres = [Array{Float64}(nvals[m], ks[m]) for m in 1:M]
-    res = [kmeans(γs[m], ks[m]) for m in 1:M]
-    for m in 1:M
-        for _ in 1:10
-            res = kmeans(γs[m], ks[m])
-            if res.totalcost < best_cost[m]
-                best_cost[m] = res.totalcost
-                best_centres[m] .= res.centers
-            end
-        end
-    end
-
-    model = IMMCTM(ks, α, features, X)
-    for m in 1:model.M
-        for k in 1:ks[m]
-            centre = vec(exp.(best_centres[m][:, k]))
-
-            start = 1
-            for i in 1:model.I[m]
-                stop = start + model.J[m][i] - 1
-                model.γ[m][k][i] .= centre[start:stop]
-                start = stop + 1
-            end
-        end
-    end
-
-    fit!(model, maxiter=500, verbose=false)
-    return model
 end
 
 function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::IMMCTM;

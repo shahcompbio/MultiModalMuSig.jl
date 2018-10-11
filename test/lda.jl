@@ -1,5 +1,5 @@
 using MultiModalMuSig
-using Base.Test
+using Test
 
 K = 2
 α = 0.1
@@ -28,7 +28,7 @@ X = Matrix{Int}[
     @test size(model.γ) == (2, 2)
     @test all(model.γ .> 0) == true
 
-    @test sum(model.ϕ[1], 1) ≈ ones(2)'
+    @test sum(model.ϕ[1], dims=1) ≈ ones(2)'
 
     model = MultiModalMuSig.LDA(K, α, η, 3, X)
     @test model.V == 3
@@ -39,7 +39,7 @@ end
     Elnθ = [0.5  -1.1; 2.3 -0.7]
     Elnβ = [-0.2 -0.9; -1.1 0.3]
 
-    ϕ = Array{Float64}(2, 2)
+    ϕ = Array{Float64}(undef, 2, 2)
     # K1 W1
     ϕ[1, 1] = exp(Elnθ[1, 1] + Elnβ[1, 1])
     # K1 W2
@@ -63,11 +63,11 @@ end
 @testset "update_γ!" begin
     ϕ = [0.4 0.2; 0.6 0.8]
 
-    γ = Array{Float64}(2)
+    γ = Array{Float64}(undef, 2)
     γ[1] = α + (ϕ[1, 1] * X[1][1, 2]) + (ϕ[1, 2] * X[1][2, 2])
     γ[2] = α + (ϕ[2, 1] * X[1][1, 2]) + (ϕ[2, 2] * X[1][2, 2])
 
-    Elnθ = Array{Float64}(2)
+    Elnθ = Array{Float64}(undef, 2)
     Elnθ[1] = digamma(γ[1]) - digamma(γ[1] + γ[2])
     Elnθ[2] = digamma(γ[2]) - digamma(γ[1] + γ[2])
 
@@ -82,13 +82,13 @@ end
 @testset "update_λ!" begin
     ϕ = [[0.4 0.2; 0.6 0.8], [0.1 0.6; 0.9 0.4]]
 
-    λ = Array{Float64}(2, 2)
+    λ = Array{Float64}(undef, 2, 2)
     λ[1, 1] = η + (ϕ[1][1, 1] * X[1][1, 2]) + (ϕ[2][1, 1] * X[2][1, 2])
     λ[2, 1] = η + (ϕ[1][1, 2] * X[1][2, 2]) + (ϕ[2][1, 2] * X[2][2, 2])
     λ[1, 2] = η + (ϕ[1][2, 1] * X[1][1, 2]) + (ϕ[2][2, 1] * X[2][1, 2])
     λ[2, 2] = η + (ϕ[1][2, 2] * X[1][2, 2]) + (ϕ[2][2, 2] * X[2][2, 2])
 
-    Elnβ = Array{Float64}(2, 2)
+    Elnβ = Array{Float64}(undef, 2, 2)
     Elnβ[1, 1] = digamma(λ[1, 1]) - digamma(λ[1, 1] + λ[2, 1])
     Elnβ[2, 1] = digamma(λ[2, 1]) - digamma(λ[1, 1] + λ[2, 1])
     Elnβ[1, 2] = digamma(λ[1, 2]) - digamma(λ[1, 2] + λ[2, 2])

@@ -1,4 +1,4 @@
-type MMCTM
+mutable struct MMCTM
     K::Vector{Int}          # topics
     D::Int                  # documents
     N::Vector{Vector{Int}}  # observations per document modality
@@ -42,10 +42,11 @@ type MMCTM
         MK = sum(model.K)
 
         model.μ = zeros(MK)
-        model.Σ = eye(MK)
-        model.invΣ = eye(MK)
+        model.Σ = Matrix{Float64}(I, MK, MK)
+        model.invΣ = Matrix{Float64}(I, MK, MK)
         model.props = [
-            [Array{Float64}(model.K[m]) for m in 1:model.M] for d in 1:model.D
+            [Array{Float64}(undef, model.K[m]) for m in 1:model.M]
+            for d in 1:model.D
         ]
 
         model.θ = [
@@ -81,7 +82,7 @@ type MMCTM
         model.λ = [zeros(MK) for d in 1:model.D]
         model.ν = [ones(MK) for d in 1:model.D]
 
-        model.ζ = [Array{Float64}(model.M) for d in 1:model.D]
+        model.ζ = [Array{Float64}(undef, model.M) for d in 1:model.D]
         for d in 1:model.D update_ζ!(model, d) end
 
         model.converged = false
@@ -109,7 +110,7 @@ end
 function calculate_sumθ(model::MMCTM, d::Int)
     return vcat(
         [
-            vec(sum(model.θ[d][m] .* model.X[d][m][:, 2]', 2))
+            vec(sum(model.θ[d][m] .* model.X[d][m][:, 2]', dims=2))
             for m in 1:model.M
         ]...
     )
@@ -191,7 +192,7 @@ function update_θ!(model::MMCTM, d::Int)
                 )
             end
         end
-        model.θ[d][m] ./= sum(model.θ[d][m], 1)
+        model.θ[d][m] ./= sum(model.θ[d][m], dims=1)
         offset += model.K[m]
     end
 end
@@ -201,7 +202,7 @@ function update_μ!(model::MMCTM)
 end
 
 function update_Σ!(model::MMCTM)
-    model.Σ .= sum(diagm.(model.ν))
+    model.Σ .= sum(diagm.(0 .=> model.ν))
     for d in 1:model.D
         diff = model.λ[d] .- model.μ
         model.Σ .+= diff * diff'
@@ -290,7 +291,7 @@ function calculate_ElnPη(model::MMCTM)
         lnp += 0.5 * (
             logdet(model.invΣ) -
             sum(model.K) * log(2π) -
-            trace(diagm(model.ν[d]) * model.invΣ) -
+            tr(diagm(0 => model.ν[d]) * model.invΣ) -
             (diff' * model.invΣ * diff)[1]
         )
     end
@@ -423,7 +424,7 @@ function calculate_loglikelihoods(X::Vector{Vector{Matrix{Int}}},
     M = length(ϕ)
     K = [length(ϕ[m]) for m in 1:M]
 
-    ll = Array{Float64}(M)
+    ll = Array{Float64}(undef, M)
 
     offset = 1
     for m in 1:M
@@ -498,7 +499,7 @@ function unsmoothed_update_θ!(model::MMCTM, d::Int)
                 model.θ[d][m][k, w] = exp(model.λ[d][offset + k]) * model.ϕ[m][k][v]
             end
         end
-        model.θ[d][m] ./= sum(model.θ[d][m], 1)
+        model.θ[d][m] ./= sum(model.θ[d][m], dims=1)
         offset += model.K[m]
     end
 end

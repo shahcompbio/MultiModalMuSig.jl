@@ -1,4 +1,4 @@
-using Base.Test
+using Test
 
 tests = ["immctm", "mmctm", "ilda", "lda", "common"]
 

@@ -1,4 +1,4 @@
-type LDA
+mutable struct LDA
     K::Int          # topics
     D::Int          # documents
     N::Vector{Int}  # observations per document modality
@@ -34,13 +34,13 @@ type LDA
         model.V = V
 
         model.λ = rand(1:100, model.V, model.K)
-        model.β = Array{Float64}(model.V, model.K)
-        model.Elnβ = Array{Float64}(model.V, model.K)
+        model.β = Array{Float64}(undef, model.V, model.K)
+        model.Elnβ = Array{Float64}(undef, model.V, model.K)
         update_Elnβ!(model)
 
         model.γ = fill(1.0, model.K, model.D)
-        model.θ = Array{Float64}(model.K, model.D)
-        model.Elnθ = Array{Float64}(model.K, model.D)
+        model.θ = Array{Float64}(undef, model.K, model.D)
+        model.Elnθ = Array{Float64}(undef, model.K, model.D)
         update_Elnθ!(model)
 
         model.ϕ = [
@@ -71,12 +71,12 @@ function update_ϕ!(model::LDA)
         model.ϕ[d] .= exp.(
             model.Elnθ[:, d] .+ model.Elnβ[model.X[d][:, 1], :]'
         )
-        model.ϕ[d] ./= sum(model.ϕ[d], 1)
+        model.ϕ[d] ./= sum(model.ϕ[d], dims=1)
     end
 end
 
 function update_Elnθ!(model::LDA)
-    model.Elnθ .= digamma.(model.γ) .- digamma.(sum(model.γ, 1))
+    model.Elnθ .= digamma.(model.γ) .- digamma.(sum(model.γ, dims=1))
 end
 
 function update_γ!(model::LDA)
@@ -90,11 +90,11 @@ function update_γ!(model::LDA)
 end
 
 function update_θ!(model::LDA)
-    model.θ .= model.γ ./ sum(model.γ, 1)
+    model.θ .= model.γ ./ sum(model.γ, dims=1)
 end
 
 function update_Elnβ!(model::LDA)
-    model.Elnβ .= digamma.(model.λ) .- digamma.(sum(model.λ, 1))
+    model.Elnβ .= digamma.(model.λ) .- digamma.(sum(model.λ, dims=1))
 end
 
 function update_λ!(model::LDA)
@@ -108,7 +108,7 @@ function update_λ!(model::LDA)
 end
 
 function update_β!(model::LDA)
-    model.β .= model.λ ./ sum(model.λ, 1)
+    model.β .= model.λ ./ sum(model.λ, dims=1)
 end
 
 function calculate_ElnPβ(model::LDA)
@@ -140,13 +140,13 @@ function calculate_ElnPX(model::LDA)
 end
 
 function calculate_ElnQβ(model::LDA)
-    lnq = sum(lgamma.(model.λ)) - sum(lgamma.(sum(model.λ, 1)))
+    lnq = sum(lgamma.(model.λ)) - sum(lgamma.(sum(model.λ, dims=1)))
     lnq -= sum((model.λ .- 1) .* model.Elnβ)
     return lnq
 end
 
 function calculate_ElnQθ(model::LDA)
-    lnq = sum(lgamma.(model.γ)) - sum(lgamma.(sum(model.γ, 1)))
+    lnq = sum(lgamma.(model.γ)) - sum(lgamma.(sum(model.γ, dims=1)))
     lnq -= sum((model.γ .- 1) .* model.Elnθ)
     return lnq
 end
@@ -226,7 +226,7 @@ end
 function unsmoothed_update_ϕ!(model::LDA)
     for d in 1:model.D
         model.ϕ[d] .= exp.(model.Elnθ[:, d]) .* model.β[model.X[d][:, 1], :]'
-        model.ϕ[d] ./= sum(model.ϕ[d], 1)
+        model.ϕ[d] ./= sum(model.ϕ[d], dims=1)
     end
 end
 
