@@ -1,5 +1,3 @@
 julia 0.7.0
-LinearAlgebra
-Statistics
 SpecialFunctions
 NLopt
