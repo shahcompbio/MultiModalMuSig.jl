@@ -556,7 +556,7 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
             fitdoc!(heldout_model, d)
         end
 
-        update_props!(model)
+        update_props!(heldout_model)
 
         push!(ll, calculate_loglikelihoods(heldout_model))
 

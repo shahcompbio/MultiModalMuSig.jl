@@ -325,6 +325,7 @@ function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::ILDA;
 
     heldout_model = ILDA(model.K, model.α, model.η, model.features, Xheldout)
     heldout_model.λ = deepcopy(model.λ)
+    heldout_model.β = deepcopy(model.β)
     heldout_model.Elnβ = deepcopy(model.Elnβ)
 
     ll = Float64[]
@@ -332,7 +333,9 @@ function fit_heldout(Xheldout::Vector{Matrix{Int}}, model::ILDA;
         update_γ!(heldout_model)
         update_ϕ!(heldout_model)
 
-        push!(ll, calculate_loglikelihood(Xheldout, heldout_model))
+        update_θ!(heldout_model)
+
+        push!(ll, calculate_loglikelihood(heldout_model))
 
         if verbose
             println("$iter\tLog-likelihood: ", ll[end])
