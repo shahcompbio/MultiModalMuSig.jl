@@ -33,6 +33,6 @@ snv_signatures |> @vlplot(
     resolve={scale={y=:independent}}
 )
 ```
-[snv_signatures](https://user-images.githubusercontent.com/381464/47934375-8a8cec80-dead-11e8-8cfe-fbde1911ddc1.png)
+![snv_signatures](https://user-images.githubusercontent.com/381464/47934375-8a8cec80-dead-11e8-8cfe-fbde1911ddc1.png)
 
 Since these types of models can get stuck in poor local optima, it's a good idea to fit many models and pick the best one.
