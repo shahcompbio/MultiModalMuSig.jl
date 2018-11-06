@@ -454,7 +454,9 @@ function fitdoc!(model::MMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
+function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false,
+        updateΣ=true)
+
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
@@ -463,7 +465,9 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
         end
 
         update_μ!(model)
-        update_Σ!(model)
+        if updateΣ
+            update_Σ!(model)
+        end
         update_γ!(model)
         if autoα
             update_α!(model)
