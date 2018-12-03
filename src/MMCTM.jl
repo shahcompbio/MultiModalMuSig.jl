@@ -181,11 +181,11 @@ end
 
 function update_θ!(model::MMCTM, d::Int)
     offset = 0
-    for m in 1:model.M
-        for w in 1:size(model.X[d][m], 1)
+    @inbounds for m in 1:model.M
+        @inbounds for w in 1:size(model.X[d][m], 1)
             v = model.X[d][m][w, 1]
 
-            for k in 1:model.K[m]
+            @inbounds for k in 1:model.K[m]
                 model.θ[d][m][k, w] = exp(
                     model.λ[d][offset + k] + model.Elnϕ[m][k][v]
                 )
@@ -453,7 +453,8 @@ function fitdoc!(model::MMCTM, d::Int)
     update_λ!(model, d)
 end
 
-function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
+function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false,
+        updateΣ=true)
     ll = Vector{Float64}[]
 
     for iter in 1:maxiter
@@ -462,7 +463,9 @@ function fit!(model::MMCTM; maxiter=100, tol=1e-4, verbose=true, autoα=false)
         end
 
         update_μ!(model)
-        update_Σ!(model)
+        if updateΣ
+            update_Σ!(model)
+        end
         update_γ!(model)
         if autoα
             update_α!(model)
@@ -555,7 +558,7 @@ function fit_heldout(Xheldout::Vector{Vector{Matrix{Int}}}, model::MMCTM;
             fitdoc!(heldout_model, d)
         end
 
-        update_props!(model)
+        update_props!(heldout_model)
 
         push!(ll, calculate_loglikelihoods(heldout_model))
 
