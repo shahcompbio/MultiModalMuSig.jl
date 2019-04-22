@@ -13,8 +13,9 @@ function format_counts_lda(countsdf::DataFrame)
             continue
         end
 
-		colcounts = convert(Array, counts_df[lib])
-		countmat = makecountmat(colcounts)
+        #
+        colcounts = convert(Array, countsdf[lib])
+        countmat = make_count_matrix(colcounts)
 
         push!(counts, countmat)
     end
@@ -22,36 +23,29 @@ function format_counts_lda(countsdf::DataFrame)
 end
 
 function format_counts_ctm(countsdf::DataFrame)
-	counts = Vector{Matrix{Int}}[]
-    for lib in names(countsdf)
-        if lib == :term
-            continue
-        end
-
-		colcounts = convert(Array, countsdf[lib])
-		countmat = makecountmat(colcounts)
-
-		push!(counts, [countmat])
-	end
-	return counts
+    return format_counts_mmctm(countsdf)
 end
 
-function format_counts_mmctm(snv_countsdf::DataFrame,
-        sv_countsdf::DataFrame)
-
+function format_counts_mmctm(countsdfs::DataFrame...)
     counts = Vector{Matrix{Int}}[]
-    for lib in names(snv_countsdf)
+
+    if length(countsdfs) == 0
+        return counts
+    end
+
+    for lib in names(countsdfs[1])
         if lib == :term
             continue
         end
 
-        snvcounts = convert(Array, snv_countsdf[lib])
-        snvcountmat = make_count_matrix(snvcounts)
+        libcounts = Matrix{Int}[]
+        for countsdf in countsdfs
+            modality_counts = convert(Array, countsdf[lib])
+            modality_countmat = make_count_matrix(modality_counts)
+            push!(libcounts, modality_countmat)
+        end
 
-        svcounts = convert(Array, sv_countsdf[lib])
-        svcountmat = make_count_matrix(svcounts)
-
-        push!(counts, [snvcountmat, svcountmat])
+        push!(counts, libcounts)
     end
 
     return counts
