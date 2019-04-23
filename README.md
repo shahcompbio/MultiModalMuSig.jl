@@ -25,6 +25,8 @@ model = MMCTM([7, 7], [0.1, 0.1], X)
 fit!(model, tol=1e-5)
 
 snv_signatures = DataFrame(hcat(model.ϕ[1]...))
+sv_signatures = DataFrame(hcat(model.ϕ[2]...))
+
 snv_signatures[:term] = snv_counts[:term]
 snv_signatures = melt(
     snv_signatures, :term, variable_name=:signature, value_name=:probability
@@ -37,6 +39,20 @@ snv_signatures |> @vlplot(
 ![snv_signatures](https://user-images.githubusercontent.com/381464/47934375-8a8cec80-dead-11e8-8cfe-fbde1911ddc1.png)
 
 This code runs the MMCTM for 7 SNV and 7 SV signatures, with signature hyperparameters set to 0.1. Since these types of models can get stuck in poor local optima, it's a good idea to fit many models and pick the best one.
+
+Sample-signature probabilities can be extracted like so:
+
+```julia
+# sample 3, SNV signature probabilities (modality 1)
+model.props[3][1]
+# SV signature probabilities (modality 2)
+model.props[3][2]
+
+# SNV probabilities for all samples
+snv_props = hcat(
+	[model.props[i][1] for i in 1:length(model.props)]...
+)
+```
 
 The MMCTM can be run on multiple modalities, *e.g.*
 
