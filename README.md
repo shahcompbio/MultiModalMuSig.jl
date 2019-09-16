@@ -1,6 +1,6 @@
 # MultiModalMuSig
 
-[![Build Status](https://travis-ci.com/shahcompbio/MultiModalMuSig.jl.svg?branch=master)](https://travis-ci.com/shahcompbio/MultiModalMuSig.jl) [![Coverage Status](https://coveralls.io/repos/shahcompbio/MultiModalMuSig.jl/badge.svg?branch=master&service=github)](https://coveralls.io/github/shahcompbio/MultiModalMuSig.jl?branch=master) [![codecov.io](http://codecov.io/github/shahcompbio/MultiModalMuSig.jl/coverage.svg?branch=master)](http://codecov.io/github/shahcompbio/MultiModalMuSig.jl?branch=master)
+[![Build Status](https://travis-ci.com/shahcompbio/MultiModalMuSig.jl.svg?branch=master)](https://travis-ci.com/shahcompbio/MultiModalMuSig.jl) [![Coverage Status](https://coveralls.io/repos/github/shahcompbio/MultiModalMuSig.jl/badge.svg?branch=master)](https://coveralls.io/github/shahcompbio/MultiModalMuSig.jl?branch=master) [![codecov.io](http://codecov.io/github/shahcompbio/MultiModalMuSig.jl/coverage.svg?branch=master)](http://codecov.io/github/shahcompbio/MultiModalMuSig.jl?branch=master)
 
 A Julia package implementing several topic models used for mutation signature estimation.
 
