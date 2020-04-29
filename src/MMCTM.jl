@@ -539,6 +539,7 @@ function transform(model::MMCTM, X::Vector{Vector{Matrix{Int}}};
             break
         end
     end
+    newmodel.ll = ll[end]
 
     return newmodel
 end

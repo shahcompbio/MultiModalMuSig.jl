@@ -13,7 +13,6 @@ function format_counts_lda(countsdf::DataFrame)
             continue
         end
 
-        #
         colcounts = convert(Array, countsdf[lib])
         countmat = make_count_matrix(colcounts)
 
@@ -26,26 +25,15 @@ function format_counts_ctm(countsdf::DataFrame)
     return format_counts_mmctm(countsdf)
 end
 
-function format_counts_mmctm(countsdfs::DataFrame...)
+function format_counts_mmctm(countdfs::Array{DataFrame}, cols::Array{Symbol})
     counts = Vector{Matrix{Int}}[]
-
-    if length(countsdfs) == 0
-        return counts
-    end
-
-    for lib in names(countsdfs[1])
-        if lib == :term
-            continue
+    for col in cols
+        doc_counts = Matrix{Int}[]
+        for df in countdfs
+            push!(doc_counts, make_count_matrix(convert(Array, df[!, col])))
         end
 
-        libcounts = Matrix{Int}[]
-        for countsdf in countsdfs
-            modality_counts = convert(Array, countsdf[lib])
-            modality_countmat = make_count_matrix(modality_counts)
-            push!(libcounts, modality_countmat)
-        end
-
-        push!(counts, libcounts)
+        push!(counts, doc_counts)
     end
 
     return counts

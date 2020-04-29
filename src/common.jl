@@ -1,9 +1,9 @@
 function logmvbeta(vals)
     r = 0.0
     for v in vals
-        r += lgamma(v)
+        r += logabsgamma(v)[1]
     end
-    r -= lgamma(sum(vals))
+    r -= logabsgamma(sum(vals))[1]
 
     return r
 end
@@ -42,7 +42,7 @@ function α_objective(α::Vector{Float64}, ∇α::Vector{Float64},
         ∇α[1] = K * V * (digamma(V * α[1]) - digamma(α[1])) + sum_Elnϕ
     end
 
-    return K * (lgamma(V * α[1]) - V * lgamma(α[1])) + α[1] * sum_Elnϕ
+    return K * (logabsgamma(V * α[1])[1] - V * logabsgamma(α[1])[1]) + α[1] * sum_Elnϕ
 end
 
 function check_convergence(metric::Vector{Vector{Float64}}; tol=1e-4)
