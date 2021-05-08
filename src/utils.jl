@@ -21,11 +21,11 @@ function format_counts_lda(countsdf::DataFrame)
     return counts
 end
 
-function format_counts_ctm(countsdf::DataFrame)
-    return format_counts_mmctm(countsdf)
+function format_counts_ctm(countsdf::DataFrame, cols::Vector{Symbol})
+    return format_counts_mmctm([countsdf], cols)
 end
 
-function format_counts_mmctm(countdfs::Array{DataFrame}, cols::Array{Symbol})
+function format_counts_mmctm(countdfs::Vector{DataFrame}, cols::Vector{Symbol})
     counts = Vector{Matrix{Int}}[]
     for col in cols
         doc_counts = Matrix{Int}[]
