@@ -6,14 +6,10 @@ function make_count_matrix(counts)
     return countmat
 end
 
-function format_counts_lda(countsdf::DataFrame)
+function format_counts_lda(countsdf::DataFrame, cols::Vector{Symbol})
     counts = Matrix{Int}[]
-    for lib in names(countsdf)
-        if lib == :term
-            continue
-        end
-
-        colcounts = convert(Array, countsdf[lib])
+    for col in cols
+        colcounts = convert(Array, countsdf[!, col])
         countmat = make_count_matrix(colcounts)
 
         push!(counts, countmat)

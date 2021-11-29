@@ -17,19 +17,20 @@ using Random
 
 Random.seed!(42)
 
-snv_counts = CSV.read("data/brca-eu_snv_counts.tsv", delim='\t')
-sv_counts = CSV.read("data/brca-eu_sv_counts.tsv", delim='\t')
+snv_counts = CSV.read("data/brca-eu_snv_counts.tsv", DataFrame, delim='\t')
+sv_counts = CSV.read("data/brca-eu_sv_counts.tsv", DataFrame, delim='\t')
 
-X = format_counts_mmctm(snv_counts, sv_counts)
+samples = [c for c in propertynames(snv_counts) if c != :term] # names of columns with counts
+X = format_counts_mmctm([snv_counts, sv_counts], samples)
 model = MMCTM([7, 7], [0.1, 0.1], X)
 fit!(model, tol=1e-5)
 
-snv_signatures = DataFrame(hcat(model.ϕ[1]...))
-sv_signatures = DataFrame(hcat(model.ϕ[2]...))
+snv_signatures = DataFrame(hcat(model.ϕ[1]...), :auto)
+sv_signatures = DataFrame(hcat(model.ϕ[2]...), :auto)
 
-snv_signatures[:term] = snv_counts[:term]
-snv_signatures = melt(
-    snv_signatures, :term, variable_name=:signature, value_name=:probability
+snv_signatures[!, :term] = snv_counts[!, :term]
+snv_signatures = stack(
+    snv_signatures, Not(:term), variable_name=:signature, value_name=:probability
 )
 snv_signatures |> @vlplot(
     :bar, x={:term, sort=:null}, y=:probability, row=:signature,
@@ -39,6 +40,8 @@ snv_signatures |> @vlplot(
 ![snv_signatures](https://user-images.githubusercontent.com/381464/47934375-8a8cec80-dead-11e8-8cfe-fbde1911ddc1.png)
 
 This code runs the MMCTM for 7 SNV and 7 SV signatures, with signature hyperparameters set to 0.1. Since these types of models can get stuck in poor local optima, it's a good idea to fit many models and pick the best one.
+
+To find the set of COSMIC signatures that best match your inferred set of signatures, one approach could be to first compute the cosine distance between the inferred and COSMIC signatures. Then you could use a linear sum assignment solver to find the optimal set of unique matches.
 
 Sample-signature probabilities can be extracted like so:
 
@@ -57,16 +60,14 @@ snv_props = hcat(
 The MMCTM can be run on multiple modalities, *e.g.*
 
 ```julia
-X = format_counts_mmctm(snv_counts, sv_counts, indel_counts)
+X = format_counts_mmctm([snv_counts, sv_counts, indel_counts], samples)
 model = MMCTM([7, 7, 5], [0.1, 0.1, 0.1], X)
 ```
-
-The `DataFrame` inputs to `format_counts_mmctm` have an optional `term` column, and further columns for each sample.
 
 To run the CTM instead, just run the MMCTM with a single modality:
 
 ```julia
-X = format_counts_ctm(snv_counts)
+X = format_counts_ctm(snv_counts, samples)
 model = MMCTM([7], [0.1], X)
 fit!(model, tol=1e-5)
 ```
@@ -74,7 +75,7 @@ fit!(model, tol=1e-5)
 The LDA implementation can be run like so:
 
 ```julia
-X = format_counts_lda(snv_counts)
+X = format_counts_lda(snv_counts, samples)
 model = LDA(7, 0.1, 0.1, X)
 fit!(model, tol=1e-5)
 ```
