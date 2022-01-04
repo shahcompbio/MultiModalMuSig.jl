@@ -1,6 +1,6 @@
 name = "MultiModalMuSig"
 uuid = "a66acb62-5df1-561a-8400-71bc98699397"
-version = "0.2.2"
+version = "0.2.3"
 
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
