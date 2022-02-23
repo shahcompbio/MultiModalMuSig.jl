@@ -509,10 +509,15 @@ function unsmoothed_update_θ!(model::MMCTM, d::Int)
 end
 
 function transform(model::MMCTM, X::Vector{Vector{Matrix{Int}}};
-                   maxiter=1000, tol=1e4, verbose=false)
+                   maxiter=1000, tol=1e4, fit_gaussian=false, verbose=false)
 
     newmodel = MMCTM(model.K, model.α, X)
     newmodel.ϕ = deepcopy(model.ϕ)
+
+    if !fit_gaussian
+        newmodel.μ = deepcopy(model.μ)
+        newmodel.Σ = deepcopy(model.Σ)
+    end
 
     ll = Vector{Float64}[]
     for iter in 1:maxiter
@@ -523,8 +528,10 @@ function transform(model::MMCTM, X::Vector{Vector{Matrix{Int}}};
             update_λ!(newmodel, d)
         end
 
-        update_μ!(newmodel)
-        update_Σ!(newmodel)
+        if fit_gaussian
+            update_μ!(newmodel)
+            update_Σ!(newmodel)
+        end
 
         update_props!(newmodel)
 

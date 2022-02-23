@@ -386,3 +386,19 @@ end
     res = MultiModalMuSig.calculate_loglikelihoods(X, model)
     @test res[1] ≈ sum(sum_ll) / sum(N)
 end
+
+@testset "transform" begin
+    model = MultiModalMuSig.MMCTM(K, α, X)
+    MultiModalMuSig.fit!(model, maxiter=1, verbose=false)
+
+    newmodel = MultiModalMuSig.transform(
+        model, X; maxiter=1, fit_gaussian=false
+    )
+    @test length(newmodel.ll) == 2
+    @test all(newmodel.Σ .== model.Σ)
+
+    newmodel = MultiModalMuSig.transform(
+        model, X; maxiter=1, fit_gaussian=true
+    )
+    @test any(newmodel.Σ .!= model.Σ)
+end
